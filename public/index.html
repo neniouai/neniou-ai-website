@@ -37,72 +37,6 @@
     overflow: hidden;
   }
 
-  /* ================= AUTH SCREEN ================= */
-  .auth-screen { height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
-  .auth-screen.hidden { display: none; }
-
-  .auth-card {
-    width: 100%;
-    max-width: 380px;
-    background: var(--bg-elevated);
-    border: 1px solid var(--border);
-    border-radius: 20px;
-    padding: 36px 32px;
-  }
-
-  .auth-logo { width: 44px; height: 44px; margin: 0 auto 18px; display: block; }
-  .auth-logo img { width: 100%; height: 100%; object-fit: contain; }
-
-  .auth-title {
-    font-family: 'Google Sans', sans-serif;
-    font-size: 1.4rem;
-    text-align: center;
-    margin: 0 0 6px;
-    background: linear-gradient(100deg, var(--accent-blue) 10%, var(--accent-teal) 55%, var(--accent-green) 90%);
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
-  }
-  .auth-subtitle { text-align: center; color: var(--text-dim); font-size: 0.88rem; margin: 0 0 28px; }
-
-  .auth-field { margin-bottom: 14px; }
-  .auth-field label { display: block; font-size: 0.78rem; color: var(--text-dim); margin-bottom: 6px; }
-  .auth-field input {
-    width: 100%;
-    background: var(--bg-input);
-    border: 1px solid var(--border);
-    color: var(--text);
-    padding: 11px 14px;
-    border-radius: 10px;
-    font-size: 0.94rem;
-    font-family: inherit;
-    outline: none;
-    transition: border-color .15s;
-  }
-  .auth-field input:focus { border-color: var(--accent-teal); }
-
-  .auth-error { color: var(--error); font-size: 0.82rem; margin: 4px 0 14px; min-height: 1em; }
-
-  .auth-submit {
-    width: 100%;
-    background: linear-gradient(100deg, var(--accent-blue), var(--accent-green));
-    color: #0b0c0d;
-    border: none;
-    padding: 12px;
-    border-radius: 10px;
-    font-weight: 600;
-    font-size: 0.95rem;
-    cursor: pointer;
-    margin-top: 6px;
-    transition: opacity .15s;
-  }
-  .auth-submit:hover { opacity: 0.9; }
-  .auth-submit:disabled { opacity: 0.5; cursor: default; }
-
-  .auth-switch { text-align: center; margin-top: 20px; font-size: 0.85rem; color: var(--text-dim); }
-  .auth-switch a { color: var(--accent-teal); text-decoration: none; cursor: pointer; }
-  .auth-switch a:hover { text-decoration: underline; }
-
   /* ================= APP (CHAT) ================= */
   .app { display: none; height: 100vh; }
   .app.visible { display: flex; }
@@ -314,63 +248,13 @@
     .input-bar input { font-size: 16px; } /* prevents iOS auto-zoom on focus */
     .thread { padding: 16px 14px 8px; }
     .bubble { max-width: 92%; font-size: 0.94rem; }
-
-    .auth-card { padding: 28px 22px; }
   }
 </style>
 </head>
 <body>
 
-<!-- ================= LOGIN SCREEN ================= -->
-<div class="auth-screen" id="login-screen">
-  <div class="auth-card">
-    <div class="auth-logo"><img src="/assets/icon.svg" alt="Neniou AI"></div>
-    <h1 class="auth-title">Bienvenue</h1>
-    <p class="auth-subtitle">Connectez-vous pour continuer vos conversations avec Neniou AI</p>
-
-    <form id="login-form">
-      <div class="auth-field">
-        <label for="login-username">Nom d'utilisateur</label>
-        <input id="login-username" type="text" autocomplete="username" required />
-      </div>
-      <div class="auth-field">
-        <label for="login-password">Mot de passe</label>
-        <input id="login-password" type="password" autocomplete="current-password" required />
-      </div>
-      <div class="auth-error" id="login-error"></div>
-      <button class="auth-submit" type="submit" id="login-submit">Connexion</button>
-    </form>
-
-    <div class="auth-switch">Pas de compte ? <a onclick="showRegister()">Créer un compte</a></div>
-  </div>
-</div>
-
-<!-- ================= REGISTER SCREEN ================= -->
-<div class="auth-screen hidden" id="register-screen">
-  <div class="auth-card">
-    <div class="auth-logo"><img src="/assets/icon.svg" alt="Neniou AI"></div>
-    <h1 class="auth-title">Créer un compte</h1>
-    <p class="auth-subtitle">Enregistrez vos conversations pour plus tard</p>
-
-    <form id="register-form">
-      <div class="auth-field">
-        <label for="register-username">Nom d'utilisateur (3+ caractères)</label>
-        <input id="register-username" type="text" autocomplete="username" required />
-      </div>
-      <div class="auth-field">
-        <label for="register-password">Mot de passe (6+ caractères)</label>
-        <input id="register-password" type="password" autocomplete="new-password" required />
-      </div>
-      <div class="auth-error" id="register-error"></div>
-      <button class="auth-submit" type="submit" id="register-submit">Créer un compte</button>
-    </form>
-
-    <div class="auth-switch">Vous avez déjà un compte ? <a onclick="showLogin()">Connexion</a></div>
-  </div>
-</div>
-
 <!-- ================= CHAT APP ================= -->
-<div class="app" id="app">
+<div class="app visible" id="app">
 
   <aside class="sidebar" id="sidebar">
     <div class="sidebar-top">
@@ -396,10 +280,7 @@
         <button class="sidebar-toggle-btn" onclick="toggleSidebar()" title="Afficher/masquer la barre latérale">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="2"/><line x1="9" y1="4" x2="9" y2="20"/></svg>
         </button>
-      </div>
-      <div class="topbar-user">
-        <span id="current-username"></span>
-        <button class="logout-btn" onclick="logout()">Déconnexion</button>
+        <span style="font-size:0.95rem; color:var(--text-dim);">Chat direct avec Neniou AI</span>
       </div>
     </div>
 
@@ -454,112 +335,12 @@
     }
   })();
 
-  // ===================== AUTH SCREEN SWITCHING =====================
-  function showRegister() {
-    document.getElementById('login-screen').classList.add('hidden');
-    document.getElementById('register-screen').classList.remove('hidden');
-  }
-  function showLogin() {
-    document.getElementById('register-screen').classList.add('hidden');
-    document.getElementById('login-screen').classList.remove('hidden');
-  }
-
   // ===================== SESSION STATE =====================
-  let authToken = null;
-  let currentUsername = null;
   let currentConversationId = null;
 
-  function saveSession(token, username) {
-    authToken = token;
-    currentUsername = username;
-    localStorage.setItem('neniou_token', token);
-    localStorage.setItem('neniou_username', username);
+  function startApp() {
+    document.getElementById('app').classList.add('visible');
   }
-
-  function clearSession() {
-    authToken = null;
-    currentUsername = null;
-    currentConversationId = null;
-    localStorage.removeItem('neniou_token');
-    localStorage.removeItem('neniou_username');
-  }
-
-  function logout() {
-    if (authToken) {
-      fetch('/api/auth/logout', { method: 'POST', headers: { Authorization: 'Bearer ' + authToken } }).catch(() => {});
-    }
-    clearSession();
-    document.getElementById('app').classList.remove('visible');
-    document.getElementById('login-screen').classList.remove('hidden');
-    document.getElementById('register-screen').classList.add('hidden');
-    resetThreadView();
-  }
-
-  // ===================== LOGIN FORM =====================
-  document.getElementById('login-form').addEventListener('submit', async (event) => {
-    event.preventDefault();
-    const username = document.getElementById('login-username').value.trim();
-    const password = document.getElementById('login-password').value;
-    const errorBox = document.getElementById('login-error');
-    const submitBtn = document.getElementById('login-submit');
-
-    errorBox.textContent = '';
-    submitBtn.disabled = true;
-
-    try {
-      const response = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password })
-      });
-      const data = await response.json();
-
-      if (!response.ok) {
-        errorBox.textContent = data.error || 'Échec de la connexion.';
-        return;
-      }
-
-      saveSession(data.token, data.username);
-      await enterApp();
-    } catch (err) {
-      errorBox.textContent = 'Erreur de connexion. Veuillez réessayer.';
-    } finally {
-      submitBtn.disabled = false;
-    }
-  });
-
-  // ===================== REGISTER FORM =====================
-  document.getElementById('register-form').addEventListener('submit', async (event) => {
-    event.preventDefault();
-    const username = document.getElementById('register-username').value.trim();
-    const password = document.getElementById('register-password').value;
-    const errorBox = document.getElementById('register-error');
-    const submitBtn = document.getElementById('register-submit');
-
-    errorBox.textContent = '';
-    submitBtn.disabled = true;
-
-    try {
-      const response = await fetch('/api/auth/register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password })
-      });
-      const data = await response.json();
-
-      if (!response.ok) {
-        errorBox.textContent = data.error || 'Impossible de créer le compte.';
-        return;
-      }
-
-      saveSession(data.token, data.username);
-      await enterApp();
-    } catch (err) {
-      errorBox.textContent = 'Erreur de connexion. Veuillez réessayer.';
-    } finally {
-      submitBtn.disabled = false;
-    }
-  });
 
   // ===================== CHAT UI HELPERS =====================
   const stage = document.getElementById('stage');
@@ -624,7 +405,7 @@
 
   // ===================== CONVERSATIONS (sidebar) =====================
   async function loadConversationList() {
-    const response = await fetch('/api/conversations', { headers: { Authorization: 'Bearer ' + authToken } });
+    const response = await fetch('/api/conversations');
     if (!response.ok) return [];
     const data = await response.json();
     return data.conversations || [];
@@ -665,7 +446,7 @@
     currentConversationId = id;
     resetThreadView();
 
-    const response = await fetch('/api/conversations/' + id, { headers: { Authorization: 'Bearer ' + authToken } });
+    const response = await fetch('/api/conversations/' + id);
     if (response.ok) {
       const data = await response.json();
       if (data.messages && data.messages.length > 0) {
@@ -684,8 +465,7 @@
 
   async function createNewConversation() {
     const response = await fetch('/api/conversations', {
-      method: 'POST',
-      headers: { Authorization: 'Bearer ' + authToken }
+      method: 'POST'
     });
     if (!response.ok) return;
     const data = await response.json();
@@ -717,13 +497,15 @@
     try {
       const response = await fetch('/api/chat', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + authToken },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ conversationId: currentConversationId, message })
       });
 
-      if (response.status === 401) {
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => null);
+        const messageText = errorData?.error || 'Erreur de communication.';
         typingRow.remove();
-        logout();
+        addMessage(messageText, 'bot');
         return;
       }
 
@@ -745,11 +527,8 @@
   });
 
   // ===================== ENTER APP AFTER LOGIN =====================
-  async function enterApp() {
-    document.getElementById('login-screen').classList.add('hidden');
-    document.getElementById('register-screen').classList.add('hidden');
+  async function startApp() {
     document.getElementById('app').classList.add('visible');
-    document.getElementById('current-username').textContent = currentUsername;
 
     const conversations = await refreshSidebar();
 
@@ -763,16 +542,7 @@
     input.focus();
   }
 
-  // ===================== AUTO LOGIN IF TOKEN SAVED =====================
-  (function tryAutoLogin() {
-    const savedToken = localStorage.getItem('neniou_token');
-    const savedUsername = localStorage.getItem('neniou_username');
-    if (savedToken && savedUsername) {
-      authToken = savedToken;
-      currentUsername = savedUsername;
-      enterApp();
-    }
-  })();
+  startApp();
 </script>
 
 </body>

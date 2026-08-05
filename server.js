@@ -71,6 +71,14 @@ function requireAuth(req, res, next) {
   next();
 }
 
+function getViewerId(req) {
+  return req.userId || 'guest';
+}
+
+function getViewerName(req) {
+  return req.username || 'guest';
+}
+
 // =====================================================================
 // AUTH ROUTES
 // =====================================================================
@@ -152,9 +160,10 @@ app.post('/api/auth/logout', requireAuth, (req, res) => {
 // =====================================================================
 
 // List all conversations for the logged-in user (id, title, updatedAt only — no messages, keeps payload small)
-app.get('/api/conversations', requireAuth, (req, res) => {
+app.get('/api/conversations', (req, res) => {
+  const userId = getViewerId(req);
   const allConversations = loadAllConversations();
-  const userConversations = allConversations[req.userId] || [];
+  const userConversations = allConversations[userId] || [];
   const summaries = userConversations
     .map((c) => ({ id: c.id, title: c.title, updatedAt: c.updatedAt }))
     .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
@@ -162,9 +171,10 @@ app.get('/api/conversations', requireAuth, (req, res) => {
 });
 
 // Create a brand new, empty conversation
-app.post('/api/conversations', requireAuth, (req, res) => {
+app.post('/api/conversations', (req, res) => {
+  const userId = getViewerId(req);
   const allConversations = loadAllConversations();
-  const userConversations = allConversations[req.userId] || [];
+  const userConversations = allConversations[userId] || [];
 
   const newConversation = {
     id: crypto.randomUUID(),
@@ -181,9 +191,10 @@ app.post('/api/conversations', requireAuth, (req, res) => {
 });
 
 // Get the full messages of one conversation
-app.get('/api/conversations/:id', requireAuth, (req, res) => {
+app.get('/api/conversations/:id', (req, res) => {
+  const userId = getViewerId(req);
   const allConversations = loadAllConversations();
-  const userConversations = allConversations[req.userId] || [];
+  const userConversations = allConversations[userId] || [];
   const conversation = userConversations.find((c) => c.id === req.params.id);
 
   if (!conversation) {
@@ -194,10 +205,11 @@ app.get('/api/conversations/:id', requireAuth, (req, res) => {
 });
 
 // Delete a conversation
-app.delete('/api/conversations/:id', requireAuth, (req, res) => {
+app.delete('/api/conversations/:id', (req, res) => {
+  const userId = getViewerId(req);
   const allConversations = loadAllConversations();
-  const userConversations = allConversations[req.userId] || [];
-  allConversations[req.userId] = userConversations.filter((c) => c.id !== req.params.id);
+  const userConversations = allConversations[userId] || [];
+  allConversations[userId] = userConversations.filter((c) => c.id !== req.params.id);
   saveAllConversations(allConversations);
   res.json({ ok: true });
 });
@@ -279,9 +291,10 @@ async function askGemini(contents, attempt = 1) {
 // =====================================================================
 // CHAT ROUTE — now scoped to a single conversationId
 // =====================================================================
-app.post('/api/chat', requireAuth, async (req, res) => {
+app.post('/api/chat', async (req, res) => {
   try {
     const { conversationId, message } = req.body;
+    const userId = getViewerId(req);
 
     if (!conversationId || !message || typeof message !== 'string' || !message.trim()) {
       return res.status(400).json({ error: 'conversationId and message are required' });
