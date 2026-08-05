@@ -1,0 +1,715 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Neniou AI</title>
+<meta name="description" content="Neniou AI — your multilingual AI assistant.">
+<link rel="icon" href="/assets/icon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0e0f11;
+    --bg-elevated: #1b1c1f;
+    --bg-input: #1e1f22;
+    --bg-hover: #262729;
+    --border: #303134;
+    --text: #e3e3e3;
+    --text-dim: #9aa0a6;
+    --accent-blue: #4a8fe7;
+    --accent-teal: #2fbf9f;
+    --accent-green: #34c98a;
+    --error: #f28b82;
+    --radius: 26px;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Inter', 'Google Sans', -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    height: 100vh;
+    overflow: hidden;
+  }
+
+  /* ================= AUTH SCREEN ================= */
+  .auth-screen { height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
+  .auth-screen.hidden { display: none; }
+
+  .auth-card {
+    width: 100%;
+    max-width: 380px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 36px 32px;
+  }
+
+  .auth-logo { width: 44px; height: 44px; margin: 0 auto 18px; display: block; }
+  .auth-logo img { width: 100%; height: 100%; object-fit: contain; }
+
+  .auth-title {
+    font-family: 'Google Sans', sans-serif;
+    font-size: 1.4rem;
+    text-align: center;
+    margin: 0 0 6px;
+    background: linear-gradient(100deg, var(--accent-blue) 10%, var(--accent-teal) 55%, var(--accent-green) 90%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .auth-subtitle { text-align: center; color: var(--text-dim); font-size: 0.88rem; margin: 0 0 28px; }
+
+  .auth-field { margin-bottom: 14px; }
+  .auth-field label { display: block; font-size: 0.78rem; color: var(--text-dim); margin-bottom: 6px; }
+  .auth-field input {
+    width: 100%;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 11px 14px;
+    border-radius: 10px;
+    font-size: 0.94rem;
+    font-family: inherit;
+    outline: none;
+    transition: border-color .15s;
+  }
+  .auth-field input:focus { border-color: var(--accent-teal); }
+
+  .auth-error { color: var(--error); font-size: 0.82rem; margin: 4px 0 14px; min-height: 1em; }
+
+  .auth-submit {
+    width: 100%;
+    background: linear-gradient(100deg, var(--accent-blue), var(--accent-green));
+    color: #0b0c0d;
+    border: none;
+    padding: 12px;
+    border-radius: 10px;
+    font-weight: 600;
+    font-size: 0.95rem;
+    cursor: pointer;
+    margin-top: 6px;
+    transition: opacity .15s;
+  }
+  .auth-submit:hover { opacity: 0.9; }
+  .auth-submit:disabled { opacity: 0.5; cursor: default; }
+
+  .auth-switch { text-align: center; margin-top: 20px; font-size: 0.85rem; color: var(--text-dim); }
+  .auth-switch a { color: var(--accent-teal); text-decoration: none; cursor: pointer; }
+  .auth-switch a:hover { text-decoration: underline; }
+
+  /* ================= APP (CHAT) ================= */
+  .app { display: none; height: 100vh; }
+  .app.visible { display: flex; }
+
+  /* ---- Sidebar with conversation list ---- */
+  .sidebar {
+    width: 260px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    padding: 16px 12px;
+    border-right: 1px solid var(--border);
+    transition: width .2s ease, padding .2s ease, opacity .15s ease;
+    overflow: hidden;
+  }
+  .sidebar.collapsed {
+    width: 0;
+    padding-left: 0;
+    padding-right: 0;
+    border-right: none;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .sidebar-top { display: flex; align-items: center; gap: 10px; padding: 4px 6px 18px; }
+  .sidebar-top img { width: 26px; height: 26px; object-fit: contain; }
+  .sidebar-top span { font-weight: 600; font-size: 0.95rem; }
+
+  .new-chat-btn {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 10px 14px;
+    border-radius: 12px;
+    font-size: 0.88rem;
+    font-family: inherit;
+    cursor: pointer;
+    margin-bottom: 14px;
+    transition: background .15s;
+  }
+  .new-chat-btn:hover { background: var(--bg-hover); }
+  .new-chat-btn svg { width: 16px; height: 16px; flex-shrink: 0; }
+
+  .conversation-list {
+    flex: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .conversation-list::-webkit-scrollbar { width: 5px; }
+  .conversation-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 10px; }
+
+  .conversation-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 12px;
+    border-radius: 10px;
+    font-size: 0.85rem;
+    color: var(--text-dim);
+    cursor: pointer;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    transition: background .15s, color .15s;
+  }
+  .conversation-item:hover { background: var(--bg-elevated); color: var(--text); }
+  .conversation-item.active { background: var(--bg-elevated); color: var(--text); }
+
+  .sidebar-empty { color: var(--text-dim); font-size: 0.78rem; padding: 12px; text-align: center; }
+
+  /* ---- Main area ---- */
+  main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+
+  .topbar { display: flex; align-items: center; justify-content: space-between; padding: 16px 24px; }
+  .topbar-left { display: flex; align-items: center; gap: 14px; }
+  .sidebar-toggle-btn {
+    width: 34px; height: 34px;
+    border-radius: 8px;
+    border: none;
+    background: transparent;
+    color: var(--text-dim);
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+    transition: background .15s, color .15s;
+  }
+  .sidebar-toggle-btn:hover { background: var(--bg-elevated); color: var(--text); }
+  .sidebar-toggle-btn svg { width: 20px; height: 20px; }
+  .topbar-user { display: flex; align-items: center; gap: 10px; font-size: 0.85rem; color: var(--text-dim); }
+  .logout-btn {
+    background: none; border: 1px solid var(--border); color: var(--text-dim);
+    padding: 6px 14px; border-radius: 100px; font-size: 0.8rem; cursor: pointer;
+  }
+  .logout-btn:hover { color: var(--text); border-color: var(--text-dim); }
+
+  .stage { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0 20px; }
+  .stage.hidden { display: none; }
+
+  .greeting {
+    font-family: 'Google Sans', 'Inter', sans-serif;
+    font-size: clamp(1.7rem, 4vw, 2.4rem);
+    font-weight: 400;
+    text-align: center;
+    margin: 0 0 32px;
+    background: linear-gradient(100deg, var(--accent-blue) 10%, var(--accent-teal) 55%, var(--accent-green) 90%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  .thread-wrap { flex: 1; overflow-y: auto; display: flex; justify-content: center; }
+  .thread-wrap.hidden { display: none; }
+
+  .thread { width: 100%; max-width: 780px; padding: 24px 20px 12px; display: flex; flex-direction: column; gap: 26px; }
+
+  .msg-row { display: flex; gap: 14px; align-items: flex-start; }
+  .msg-row.user { justify-content: flex-end; }
+
+  .msg-avatar {
+    width: 28px; height: 28px; border-radius: 50%; flex-shrink: 0;
+    background: linear-gradient(135deg, var(--accent-blue), var(--accent-green));
+    display: flex; align-items: center; justify-content: center;
+  }
+  .msg-avatar img { width: 16px; height: 16px; object-fit: contain; }
+
+  .bubble { max-width: 74%; padding: 12px 16px; border-radius: 18px; font-size: 0.96rem; line-height: 1.6; white-space: pre-wrap; }
+  .msg-row.user .bubble { background: var(--bg-elevated); border: 1px solid var(--border); border-bottom-right-radius: 4px; }
+  .msg-row.bot .bubble { background: transparent; padding: 6px 0; color: var(--text); }
+
+  .typing-dots { display: flex; gap: 5px; padding: 10px 0; }
+  .typing-dots span { width: 6px; height: 6px; border-radius: 50%; background: var(--text-dim); animation: bounce 1.1s infinite ease-in-out; }
+  .typing-dots span:nth-child(2) { animation-delay: .15s; }
+  .typing-dots span:nth-child(3) { animation-delay: .3s; }
+  @keyframes bounce { 0%, 60%, 100% { opacity: .3; transform: translateY(0); } 30% { opacity: 1; transform: translateY(-3px); } }
+
+  .input-zone { padding: 10px 20px 22px; display: flex; justify-content: center; }
+  .input-bar {
+    width: 100%; max-width: 780px;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 8px 8px 20px;
+    transition: border-color .15s;
+  }
+  .input-bar:focus-within { border-color: #4a4d51; }
+  .input-bar input {
+    flex: 1; background: transparent; border: none; outline: none;
+    color: var(--text); font-size: 0.98rem; font-family: inherit; padding: 10px 0;
+  }
+  .input-bar input::placeholder { color: var(--text-dim); }
+
+  .send-btn {
+    width: 38px; height: 38px; border-radius: 50%; border: none;
+    background: var(--bg-elevated); color: var(--text-dim);
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; flex-shrink: 0;
+    transition: background .15s, color .15s;
+  }
+  .send-btn:not(:disabled):hover { background: #303134; color: var(--text); }
+  .send-btn:disabled { opacity: .4; cursor: default; }
+  .send-btn svg { width: 18px; height: 18px; }
+
+  .disclaimer { text-align: center; font-size: 0.72rem; color: var(--text-dim); padding-bottom: 14px; }
+
+  @media (max-width: 780px) {
+    .sidebar { width: 220px; }
+    .bubble { max-width: 88%; }
+  }
+  @media (max-width: 560px) {
+    .sidebar { position: fixed; z-index: 10; height: 100vh; background: var(--bg); }
+  }
+</style>
+</head>
+<body>
+
+<!-- ================= LOGIN SCREEN ================= -->
+<div class="auth-screen" id="login-screen">
+  <div class="auth-card">
+    <div class="auth-logo"><img src="/assets/icon.svg" alt="Neniou AI"></div>
+    <h1 class="auth-title">Bienvenue</h1>
+    <p class="auth-subtitle">Connectez-vous pour continuer vos conversations avec Neniou AI</p>
+
+    <form id="login-form">
+      <div class="auth-field">
+        <label for="login-username">Nom d'utilisateur</label>
+        <input id="login-username" type="text" autocomplete="username" required />
+      </div>
+      <div class="auth-field">
+        <label for="login-password">Mot de passe</label>
+        <input id="login-password" type="password" autocomplete="current-password" required />
+      </div>
+      <div class="auth-error" id="login-error"></div>
+      <button class="auth-submit" type="submit" id="login-submit">Connexion</button>
+    </form>
+
+    <div class="auth-switch">Pas de compte ? <a onclick="showRegister()">Créer un compte</a></div>
+  </div>
+</div>
+
+<!-- ================= REGISTER SCREEN ================= -->
+<div class="auth-screen hidden" id="register-screen">
+  <div class="auth-card">
+    <div class="auth-logo"><img src="/assets/icon.svg" alt="Neniou AI"></div>
+    <h1 class="auth-title">Créer un compte</h1>
+    <p class="auth-subtitle">Enregistrez vos conversations pour plus tard</p>
+
+    <form id="register-form">
+      <div class="auth-field">
+        <label for="register-username">Nom d'utilisateur (3+ caractères)</label>
+        <input id="register-username" type="text" autocomplete="username" required />
+      </div>
+      <div class="auth-field">
+        <label for="register-password">Mot de passe (6+ caractères)</label>
+        <input id="register-password" type="password" autocomplete="new-password" required />
+      </div>
+      <div class="auth-error" id="register-error"></div>
+      <button class="auth-submit" type="submit" id="register-submit">Créer un compte</button>
+    </form>
+
+    <div class="auth-switch">Vous avez déjà un compte ? <a onclick="showLogin()">Connexion</a></div>
+  </div>
+</div>
+
+<!-- ================= CHAT APP ================= -->
+<div class="app" id="app">
+
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-top">
+      <img src="/assets/icon.svg" alt="Neniou AI">
+      <span>Neniou AI</span>
+    </div>
+
+    <button class="new-chat-btn" onclick="createNewConversation()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 5v14M5 12h14"/></svg>
+      Nouvelle conversation
+    </button>
+
+    <div class="conversation-list" id="conversation-list">
+      <div class="sidebar-empty">Aucune conversation pour l'instant</div>
+    </div>
+  </aside>
+
+  <main>
+    <div class="topbar">
+      <div class="topbar-left">
+        <button class="sidebar-toggle-btn" onclick="toggleSidebar()" title="Afficher/masquer la barre latérale">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="2"/><line x1="9" y1="4" x2="9" y2="20"/></svg>
+        </button>
+      </div>
+      <div class="topbar-user">
+        <span id="current-username"></span>
+        <button class="logout-btn" onclick="logout()">Déconnexion</button>
+      </div>
+    </div>
+
+    <div class="stage" id="stage">
+      <div class="greeting">Bonjour, que puis-je faire pour vous aujourd'hui ?</div>
+    </div>
+
+    <div class="thread-wrap hidden" id="thread-wrap">
+      <div class="thread" id="thread"></div>
+    </div>
+
+    <div class="input-zone">
+      <form class="input-bar" id="chat-form">
+        <input id="chat-input" type="text" placeholder="Écrivez un message pour Neniou AI..." autocomplete="off" />
+        <button class="send-btn" id="send-btn" type="submit" disabled aria-label="Envoyer">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+        </button>
+      </form>
+    </div>
+    <div class="disclaimer">Neniou AI peut faire des erreurs. Vérifiez les informations importantes.</div>
+  </main>
+
+</div>
+
+<script>
+  // ===================== SIDEBAR TOGGLE =====================
+  function toggleSidebar() {
+    const sidebar = document.getElementById('sidebar');
+    sidebar.classList.toggle('collapsed');
+    localStorage.setItem('neniou_sidebar_collapsed', sidebar.classList.contains('collapsed') ? '1' : '0');
+  }
+
+  (function restoreSidebarState() {
+    if (localStorage.getItem('neniou_sidebar_collapsed') === '1') {
+      document.getElementById('sidebar').classList.add('collapsed');
+    }
+  })();
+
+  // ===================== AUTH SCREEN SWITCHING =====================
+  function showRegister() {
+    document.getElementById('login-screen').classList.add('hidden');
+    document.getElementById('register-screen').classList.remove('hidden');
+  }
+  function showLogin() {
+    document.getElementById('register-screen').classList.add('hidden');
+    document.getElementById('login-screen').classList.remove('hidden');
+  }
+
+  // ===================== SESSION STATE =====================
+  let authToken = null;
+  let currentUsername = null;
+  let currentConversationId = null;
+
+  function saveSession(token, username) {
+    authToken = token;
+    currentUsername = username;
+    localStorage.setItem('neniou_token', token);
+    localStorage.setItem('neniou_username', username);
+  }
+
+  function clearSession() {
+    authToken = null;
+    currentUsername = null;
+    currentConversationId = null;
+    localStorage.removeItem('neniou_token');
+    localStorage.removeItem('neniou_username');
+  }
+
+  function logout() {
+    if (authToken) {
+      fetch('/api/auth/logout', { method: 'POST', headers: { Authorization: 'Bearer ' + authToken } }).catch(() => {});
+    }
+    clearSession();
+    document.getElementById('app').classList.remove('visible');
+    document.getElementById('login-screen').classList.remove('hidden');
+    document.getElementById('register-screen').classList.add('hidden');
+    resetThreadView();
+  }
+
+  // ===================== LOGIN FORM =====================
+  document.getElementById('login-form').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const username = document.getElementById('login-username').value.trim();
+    const password = document.getElementById('login-password').value;
+    const errorBox = document.getElementById('login-error');
+    const submitBtn = document.getElementById('login-submit');
+
+    errorBox.textContent = '';
+    submitBtn.disabled = true;
+
+    try {
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password })
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        errorBox.textContent = data.error || 'Échec de la connexion.';
+        return;
+      }
+
+      saveSession(data.token, data.username);
+      await enterApp();
+    } catch (err) {
+      errorBox.textContent = 'Erreur de connexion. Veuillez réessayer.';
+    } finally {
+      submitBtn.disabled = false;
+    }
+  });
+
+  // ===================== REGISTER FORM =====================
+  document.getElementById('register-form').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const username = document.getElementById('register-username').value.trim();
+    const password = document.getElementById('register-password').value;
+    const errorBox = document.getElementById('register-error');
+    const submitBtn = document.getElementById('register-submit');
+
+    errorBox.textContent = '';
+    submitBtn.disabled = true;
+
+    try {
+      const response = await fetch('/api/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password })
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        errorBox.textContent = data.error || 'Impossible de créer le compte.';
+        return;
+      }
+
+      saveSession(data.token, data.username);
+      await enterApp();
+    } catch (err) {
+      errorBox.textContent = 'Erreur de connexion. Veuillez réessayer.';
+    } finally {
+      submitBtn.disabled = false;
+    }
+  });
+
+  // ===================== CHAT UI HELPERS =====================
+  const stage = document.getElementById('stage');
+  const threadWrap = document.getElementById('thread-wrap');
+  const thread = document.getElementById('thread');
+  const form = document.getElementById('chat-form');
+  const input = document.getElementById('chat-input');
+  const sendBtn = document.getElementById('send-btn');
+  const conversationListEl = document.getElementById('conversation-list');
+
+  input.addEventListener('input', () => {
+    sendBtn.disabled = input.value.trim().length === 0;
+  });
+
+  function addMessage(text, role) {
+    const row = document.createElement('div');
+    row.className = 'msg-row ' + role;
+
+    if (role === 'bot') {
+      const avatar = document.createElement('div');
+      avatar.className = 'msg-avatar';
+      avatar.innerHTML = '<img src="/assets/icon.svg" alt="">';
+      row.appendChild(avatar);
+    }
+
+    const bubble = document.createElement('div');
+    bubble.className = 'bubble';
+    bubble.textContent = text;
+    row.appendChild(bubble);
+
+    thread.appendChild(row);
+    threadWrap.scrollTop = threadWrap.scrollHeight;
+    return bubble;
+  }
+
+  function addTypingIndicator() {
+    const row = document.createElement('div');
+    row.className = 'msg-row bot';
+    const avatar = document.createElement('div');
+    avatar.className = 'msg-avatar';
+    avatar.innerHTML = '<img src="/assets/icon.svg" alt="">';
+    const bubble = document.createElement('div');
+    bubble.className = 'bubble';
+    bubble.innerHTML = '<div class="typing-dots"><span></span><span></span><span></span></div>';
+    row.appendChild(avatar);
+    row.appendChild(bubble);
+    thread.appendChild(row);
+    threadWrap.scrollTop = threadWrap.scrollHeight;
+    return row;
+  }
+
+  function showThreadView() {
+    stage.classList.add('hidden');
+    threadWrap.classList.remove('hidden');
+  }
+
+  function resetThreadView() {
+    thread.innerHTML = '';
+    threadWrap.classList.add('hidden');
+    stage.classList.remove('hidden');
+  }
+
+  // ===================== CONVERSATIONS (sidebar) =====================
+  async function loadConversationList() {
+    const response = await fetch('/api/conversations', { headers: { Authorization: 'Bearer ' + authToken } });
+    if (!response.ok) return [];
+    const data = await response.json();
+    return data.conversations || [];
+  }
+
+  function renderConversationList(conversations) {
+    conversationListEl.innerHTML = '';
+
+    if (conversations.length === 0) {
+      conversationListEl.innerHTML = "<div class=\"sidebar-empty\">Aucune conversation pour l'instant</div>";
+      return;
+    }
+
+    for (const conv of conversations) {
+      const item = document.createElement('div');
+      item.className = 'conversation-item' + (conv.id === currentConversationId ? ' active' : '');
+      item.textContent = conv.title || 'New chat';
+      item.title = conv.title || 'New chat';
+      item.onclick = () => openConversation(conv.id);
+      conversationListEl.appendChild(item);
+    }
+  }
+
+  async function refreshSidebar() {
+    const conversations = await loadConversationList();
+    renderConversationList(conversations);
+    return conversations;
+  }
+
+  async function openConversation(id) {
+    currentConversationId = id;
+    resetThreadView();
+
+    const response = await fetch('/api/conversations/' + id, { headers: { Authorization: 'Bearer ' + authToken } });
+    if (response.ok) {
+      const data = await response.json();
+      if (data.messages && data.messages.length > 0) {
+        showThreadView();
+        for (const entry of data.messages) {
+          const text = entry.parts?.[0]?.text || '';
+          addMessage(text, entry.role === 'user' ? 'user' : 'bot');
+        }
+      }
+    }
+
+    await refreshSidebar();
+    input.focus();
+  }
+
+  async function createNewConversation() {
+    const response = await fetch('/api/conversations', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + authToken }
+    });
+    if (!response.ok) return;
+    const data = await response.json();
+    currentConversationId = data.id;
+    resetThreadView();
+    await refreshSidebar();
+    input.focus();
+  }
+
+  // ===================== SENDING MESSAGES =====================
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const message = input.value.trim();
+    if (!message) return;
+
+    // If no conversation is open yet, create one first
+    if (!currentConversationId) {
+      await createNewConversation();
+    }
+
+    showThreadView();
+    addMessage(message, 'user');
+    input.value = '';
+    sendBtn.disabled = true;
+
+    const typingRow = addTypingIndicator();
+
+    try {
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + authToken },
+        body: JSON.stringify({ conversationId: currentConversationId, message })
+      });
+
+      if (response.status === 401) {
+        typingRow.remove();
+        logout();
+        return;
+      }
+
+      const data = await response.json();
+      typingRow.remove();
+
+      if (data.reply) {
+        addMessage(data.reply, 'bot');
+        await refreshSidebar(); // title may have just been set from the first message
+      } else {
+        addMessage('Désolé, quelque chose a mal tourné. Veuillez réessayer.', 'bot');
+      }
+    } catch (err) {
+      typingRow.remove();
+      addMessage('Erreur de connexion. Veuillez réessayer.', 'bot');
+    } finally {
+      input.focus();
+    }
+  });
+
+  // ===================== ENTER APP AFTER LOGIN =====================
+  async function enterApp() {
+    document.getElementById('login-screen').classList.add('hidden');
+    document.getElementById('register-screen').classList.add('hidden');
+    document.getElementById('app').classList.add('visible');
+    document.getElementById('current-username').textContent = currentUsername;
+
+    const conversations = await refreshSidebar();
+
+    if (conversations.length > 0) {
+      await openConversation(conversations[0].id);
+    } else {
+      currentConversationId = null;
+      resetThreadView();
+    }
+
+    input.focus();
+  }
+
+  // ===================== AUTO LOGIN IF TOKEN SAVED =====================
+  (function tryAutoLogin() {
+    const savedToken = localStorage.getItem('neniou_token');
+    const savedUsername = localStorage.getItem('neniou_username');
+    if (savedToken && savedUsername) {
+      authToken = savedToken;
+      currentUsername = savedUsername;
+      enterApp();
+    }
+  })();
+</script>
+
+</body>
+</html>
