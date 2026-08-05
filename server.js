@@ -3,7 +3,6 @@ import express from 'express';
 import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
-import bcrypt from 'bcryptjs';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -21,23 +20,17 @@ if (!GEMINI_API_KEY) {
 }
 
 // =====================================================================
-// SIMPLE FILE-BASED DATABASE (JSON files)
+// SIMPLE FILE-BASED STORAGE — no accounts, no passwords.
+// Each visitor is identified by an anonymous client ID generated in their
+// browser (stored in localStorage) and sent as the "X-Client-Id" header.
 // =====================================================================
 const DATA_DIR = path.join(__dirname, 'data');
-const USERS_FILE = path.join(DATA_DIR, 'users.json');
-// conversations.json shape: { [userId]: [ { id, title, messages: [{role, parts}], updatedAt } ] }
+// conversations.json shape: { [clientId]: [ { id, title, messages: [{role, parts}], updatedAt } ] }
 const CONVERSATIONS_FILE = path.join(DATA_DIR, 'conversations.json');
 
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-if (!fs.existsSync(USERS_FILE)) fs.writeFileSync(USERS_FILE, '[]');
 if (!fs.existsSync(CONVERSATIONS_FILE)) fs.writeFileSync(CONVERSATIONS_FILE, '{}');
 
-function loadUsers() {
-  return JSON.parse(fs.readFileSync(USERS_FILE, 'utf-8'));
-}
-function saveUsers(users) {
-  fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
-}
 function loadAllConversations() {
   return JSON.parse(fs.readFileSync(CONVERSATIONS_FILE, 'utf-8'));
 }
@@ -50,131 +43,34 @@ function makeTitle(firstMessage) {
   return clean.length > 40 ? clean.slice(0, 40) + '…' : clean;
 }
 
-// In-memory active sessions: token -> { userId, username }
-const activeSessions = new Map();
-
-function createToken() {
-  return crypto.randomBytes(32).toString('hex');
-}
-
-function requireAuth(req, res, next) {
-  const authHeader = req.headers.authorization || '';
-  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
-  const session = token ? activeSessions.get(token) : null;
-
-  if (!session) {
-    return res.status(401).json({ error: 'Not authenticated' });
+// Every request must carry a client ID (the frontend generates and persists
+// one automatically). If it's missing, reject clearly instead of silently
+// mixing everyone's conversations under one bucket.
+function requireClientId(req, res, next) {
+  const clientId = req.headers['x-client-id'];
+  if (!clientId || typeof clientId !== 'string' || clientId.length < 8) {
+    return res.status(400).json({ error: 'Missing client id' });
   }
-
-  req.userId = session.userId;
-  req.username = session.username;
+  req.clientId = clientId;
   next();
 }
-
-function getViewerId(req) {
-  return req.userId || 'guest';
-}
-
-function getViewerName(req) {
-  return req.username || 'guest';
-}
-
-// =====================================================================
-// AUTH ROUTES
-// =====================================================================
-app.post('/api/auth/register', async (req, res) => {
-  try {
-    const { username, password } = req.body;
-
-    if (!username || !password || username.trim().length < 3 || password.length < 6) {
-      return res.status(400).json({ error: "Le nom d'utilisateur doit avoir 3+ caractères et le mot de passe 6+ caractères." });
-    }
-
-    const cleanUsername = username.trim().toLowerCase();
-    const users = loadUsers();
-
-    if (users.some((u) => u.username === cleanUsername)) {
-      return res.status(409).json({ error: "Ce nom d'utilisateur est déjà pris." });
-    }
-
-    const passwordHash = await bcrypt.hash(password, 10);
-    const newUser = { id: crypto.randomUUID(), username: cleanUsername, passwordHash };
-    users.push(newUser);
-    saveUsers(users);
-
-    const allConversations = loadAllConversations();
-    allConversations[newUser.id] = [];
-    saveAllConversations(allConversations);
-
-    const token = createToken();
-    activeSessions.set(token, { userId: newUser.id, username: cleanUsername });
-
-    res.json({ token, username: cleanUsername });
-    console.log(`✅ New account created: ${cleanUsername}`);
-  } catch (error) {
-    console.error('❌ Register error:', error.message || error);
-    res.status(500).json({ error: 'Une erreur est survenue, veuillez réessayer.' });
-  }
-});
-
-app.post('/api/auth/login', async (req, res) => {
-  try {
-    const { username, password } = req.body;
-    if (!username || !password) {
-      return res.status(400).json({ error: "Le nom d'utilisateur et le mot de passe sont requis." });
-    }
-
-    const cleanUsername = username.trim().toLowerCase();
-    const users = loadUsers();
-    const user = users.find((u) => u.username === cleanUsername);
-
-    if (!user) {
-      return res.status(401).json({ error: "Nom d'utilisateur ou mot de passe incorrect." });
-    }
-
-    const passwordMatches = await bcrypt.compare(password, user.passwordHash);
-    if (!passwordMatches) {
-      return res.status(401).json({ error: "Nom d'utilisateur ou mot de passe incorrect." });
-    }
-
-    const token = createToken();
-    activeSessions.set(token, { userId: user.id, username: user.username });
-
-    res.json({ token, username: user.username });
-    console.log(`✅ Login: ${user.username}`);
-  } catch (error) {
-    console.error('❌ Login error:', error.message || error);
-    res.status(500).json({ error: 'Une erreur est survenue, veuillez réessayer.' });
-  }
-});
-
-app.post('/api/auth/logout', requireAuth, (req, res) => {
-  const authHeader = req.headers.authorization || '';
-  const token = authHeader.slice(7);
-  activeSessions.delete(token);
-  res.json({ ok: true });
-});
 
 // =====================================================================
 // CONVERSATION ROUTES — each conversation has its own isolated history
 // =====================================================================
 
-// List all conversations for the logged-in user (id, title, updatedAt only — no messages, keeps payload small)
-app.get('/api/conversations', (req, res) => {
-  const userId = getViewerId(req);
+app.get('/api/conversations', requireClientId, (req, res) => {
   const allConversations = loadAllConversations();
-  const userConversations = allConversations[userId] || [];
-  const summaries = userConversations
+  const myConversations = allConversations[req.clientId] || [];
+  const summaries = myConversations
     .map((c) => ({ id: c.id, title: c.title, updatedAt: c.updatedAt }))
     .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
   res.json({ conversations: summaries });
 });
 
-// Create a brand new, empty conversation
-app.post('/api/conversations', (req, res) => {
-  const userId = getViewerId(req);
+app.post('/api/conversations', requireClientId, (req, res) => {
   const allConversations = loadAllConversations();
-  const userConversations = allConversations[userId] || [];
+  const myConversations = allConversations[req.clientId] || [];
 
   const newConversation = {
     id: crypto.randomUUID(),
@@ -183,19 +79,17 @@ app.post('/api/conversations', (req, res) => {
     updatedAt: new Date().toISOString()
   };
 
-  userConversations.push(newConversation);
-  allConversations[req.userId] = userConversations;
+  myConversations.push(newConversation);
+  allConversations[req.clientId] = myConversations;
   saveAllConversations(allConversations);
 
   res.json({ id: newConversation.id });
 });
 
-// Get the full messages of one conversation
-app.get('/api/conversations/:id', (req, res) => {
-  const userId = getViewerId(req);
+app.get('/api/conversations/:id', requireClientId, (req, res) => {
   const allConversations = loadAllConversations();
-  const userConversations = allConversations[userId] || [];
-  const conversation = userConversations.find((c) => c.id === req.params.id);
+  const myConversations = allConversations[req.clientId] || [];
+  const conversation = myConversations.find((c) => c.id === req.params.id);
 
   if (!conversation) {
     return res.status(404).json({ error: 'Conversation not found' });
@@ -204,12 +98,10 @@ app.get('/api/conversations/:id', (req, res) => {
   res.json({ messages: conversation.messages });
 });
 
-// Delete a conversation
-app.delete('/api/conversations/:id', (req, res) => {
-  const userId = getViewerId(req);
+app.delete('/api/conversations/:id', requireClientId, (req, res) => {
   const allConversations = loadAllConversations();
-  const userConversations = allConversations[userId] || [];
-  allConversations[userId] = userConversations.filter((c) => c.id !== req.params.id);
+  const myConversations = allConversations[req.clientId] || [];
+  allConversations[req.clientId] = myConversations.filter((c) => c.id !== req.params.id);
   saveAllConversations(allConversations);
   res.json({ ok: true });
 });
@@ -289,12 +181,11 @@ async function askGemini(contents, attempt = 1) {
 }
 
 // =====================================================================
-// CHAT ROUTE — now scoped to a single conversationId
+// CHAT ROUTE — scoped to a single conversationId, owned by the anonymous client
 // =====================================================================
-app.post('/api/chat', async (req, res) => {
+app.post('/api/chat', requireClientId, async (req, res) => {
   try {
     const { conversationId, message } = req.body;
-    const userId = getViewerId(req);
 
     if (!conversationId || !message || typeof message !== 'string' || !message.trim()) {
       return res.status(400).json({ error: 'conversationId and message are required' });
@@ -303,14 +194,14 @@ app.post('/api/chat', async (req, res) => {
     const userMessage = message.trim().slice(0, 2000);
 
     const allConversations = loadAllConversations();
-    const userConversations = allConversations[req.userId] || [];
-    const conversation = userConversations.find((c) => c.id === conversationId);
+    const myConversations = allConversations[req.clientId] || [];
+    const conversation = myConversations.find((c) => c.id === conversationId);
 
     if (!conversation) {
       return res.status(404).json({ error: 'Conversation not found' });
     }
 
-    console.log(`📩 [${req.username} / ${conversation.title}] ${userMessage}`);
+    console.log(`📩 [${req.clientId.slice(0, 8)} / ${conversation.title}] ${userMessage}`);
 
     conversation.messages.push({ role: 'user', parts: [{ text: userMessage }] });
 
@@ -330,7 +221,7 @@ app.post('/api/chat', async (req, res) => {
     saveAllConversations(allConversations);
 
     res.json({ reply, title: conversation.title });
-    console.log(`✅ Reply sent to ${req.username}`);
+    console.log(`✅ Reply sent`);
   } catch (error) {
     console.error('❌ Error:', error.message || error);
     res.status(500).json({ error: 'Something went wrong, please try again.' });
