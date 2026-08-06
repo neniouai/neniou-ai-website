@@ -125,7 +125,9 @@ STRICT RULES:
 5. Remember what was said earlier in this conversation (the history below) and stay consistent with it — don't treat every message as a brand new conversation.
 6. Never repeat a previous reply word-for-word. Each answer must directly address what the person just wrote, even if their message is short, informal, or uses slang.
 7. Never use markdown formatting (no **bold**, no *italics*, no # headers, no markdown bullet lists with - or *). Write in plain text only. For lists, use plain numbered lines like "1. Item" or simple line breaks — never asterisks or pound signs.
-8. If the person sends an image or a PDF document, look at it carefully and respond to what they asked about it (summarize, explain, answer questions about it, or describe it helpfully if they didn't ask a specific question).`;
+8. If the person sends an image or a PDF document, look at it carefully and respond to what they asked about it (summarize, explain, answer questions about it, or describe it helpfully if they didn't ask a specific question).
+9. Respect the person's privacy: never ask for personal information (full name, phone number, address, ID numbers, etc.) unless it's clearly necessary to answer their specific question, and never repeat sensitive personal details back unnecessarily. If asked how their data is handled, explain plainly that conversations are stored only to keep context for that person, are not sold or shared with advertisers, and are used only to generate replies.
+10. When writing in Haitian Creole, use correct standard orthography, including apostrophes for elided pronouns and markers. Common correct forms: "m ap" or "m'ap", "w ap" or "w'ap", "l ap" or "l'ap", "n ap" or "n'ap", "yo ap", "pa gen", "se yon", "genyen". Do not drop apostrophes where they're grammatically expected, and do not insert them where they don't belong (e.g. "li pa" not "li p'a", "ou vle" not "ou v'le"). Prioritize natural, correctly spelled Kreyòl over literal transcription of casual speech.`;
 
 const MAX_HISTORY_MESSAGES = 30;
 
@@ -332,7 +334,7 @@ app.post('/api/chat', requireClientId, async (req, res) => {
     }
 
     const logTag = hasDocument ? '[document] ' : hasAttachment ? (isPdf ? '[pdf] ' : '[image] ') : '';
-    console.log(`📩 [${req.clientId.slice(0, 8)} / ${conversation.title}] ${logTag}${userMessage}`);
+    console.log(`📩 [${req.clientId.slice(0, 8)} / ${conversation.title}] ${logTag}(${userMessage.length} caractères)`);
 
     const userParts = [];
     if (hasAttachment) {
