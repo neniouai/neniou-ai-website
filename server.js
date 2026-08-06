@@ -7,7 +7,7 @@ import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
-app.use(express.json({ limit: '12mb' })); // raised limit to allow base64 image uploads
+app.use(express.json({ limit: '20mb' })); // raised limit to allow base64 image/PDF uploads
 app.use(express.static(path.join(__dirname, 'public')));
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
@@ -123,7 +123,7 @@ STRICT RULES:
 5. Remember what was said earlier in this conversation (the history below) and stay consistent with it — don't treat every message as a brand new conversation.
 6. Never repeat a previous reply word-for-word. Each answer must directly address what the person just wrote, even if their message is short, informal, or uses slang.
 7. Never use markdown formatting (no **bold**, no *italics*, no # headers, no markdown bullet lists with - or *). Write in plain text only. For lists, use plain numbered lines like "1. Item" or simple line breaks — never asterisks or pound signs.
-8. If the person sends an image, look at it carefully and respond to what they asked about it (or describe it helpfully if they didn't ask a specific question).`;
+8. If the person sends an image or a PDF document, look at it carefully and respond to what they asked about it (summarize, explain, answer questions about it, or describe it helpfully if they didn't ask a specific question).`;
 
 const MAX_HISTORY_MESSAGES = 30;
 
@@ -185,35 +185,73 @@ async function askGemini(contents, attempt = 1) {
   return reply.trim();
 }
 
-const ALLOWED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/heic', 'image/heif'];
-const MAX_IMAGE_BASE64_LENGTH = 8_000_000; // ~6MB raw, generous for phone photos
+const ALLOWED_ATTACHMENT_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/heic', 'image/heif', 'application/pdf'];
+const MAX_ATTACHMENT_BASE64_LENGTH = 14_000_000; // ~10MB raw, enough for most PDFs and phone photos
+
+// =====================================================================
+// FAIR-USE LIMIT — the Gemini API key is shared across every visitor.
+// This caps each anonymous visitor to a reasonable number of messages
+// per day so one person can't exhaust the quota for everyone else.
+// =====================================================================
+const DAILY_MESSAGE_LIMIT = Number(process.env.DAILY_MESSAGE_LIMIT) || 40;
+const usageByClient = new Map(); // clientId -> { count, dayKey }
+
+function todayKey() {
+  return new Date().toISOString().slice(0, 10); // "2026-08-06"
+}
+
+function checkAndConsumeQuota(clientId) {
+  const key = todayKey();
+  const entry = usageByClient.get(clientId);
+
+  if (!entry || entry.dayKey !== key) {
+    usageByClient.set(clientId, { count: 1, dayKey: key });
+    return { allowed: true, remaining: DAILY_MESSAGE_LIMIT - 1 };
+  }
+
+  if (entry.count >= DAILY_MESSAGE_LIMIT) {
+    return { allowed: false, remaining: 0 };
+  }
+
+  entry.count += 1;
+  return { allowed: true, remaining: DAILY_MESSAGE_LIMIT - entry.count };
+}
 
 // =====================================================================
 // CHAT ROUTE — supports text, and optionally an attached image
 // =====================================================================
 app.post('/api/chat', requireClientId, async (req, res) => {
   try {
-    const { conversationId, message, image } = req.body;
+    const { conversationId, message, image } = req.body; // 'image' now carries any attachment: image or PDF
 
     if (!conversationId) {
       return res.status(400).json({ error: 'conversationId is required' });
     }
+
+    const quota = checkAndConsumeQuota(req.clientId);
+    if (!quota.allowed) {
+      return res.status(429).json({
+        error: `Limite quotidienne atteinte (${DAILY_MESSAGE_LIMIT} messages/jour). Réessayez demain.`
+      });
+    }
+
     const hasText = typeof message === 'string' && message.trim().length > 0;
-    const hasImage = image && typeof image.data === 'string' && typeof image.mimeType === 'string';
+    const hasAttachment = image && typeof image.data === 'string' && typeof image.mimeType === 'string';
 
-    if (!hasText && !hasImage) {
-      return res.status(400).json({ error: 'message or image is required' });
+    if (!hasText && !hasAttachment) {
+      return res.status(400).json({ error: 'message or attachment is required' });
     }
 
-    if (hasImage) {
-      if (!ALLOWED_IMAGE_TYPES.includes(image.mimeType)) {
-        return res.status(400).json({ error: 'Unsupported image type' });
+    if (hasAttachment) {
+      if (!ALLOWED_ATTACHMENT_TYPES.includes(image.mimeType)) {
+        return res.status(400).json({ error: 'Unsupported file type' });
       }
-      if (image.data.length > MAX_IMAGE_BASE64_LENGTH) {
-        return res.status(400).json({ error: 'Image is too large' });
+      if (image.data.length > MAX_ATTACHMENT_BASE64_LENGTH) {
+        return res.status(400).json({ error: 'File is too large' });
       }
     }
 
+    const isPdf = hasAttachment && image.mimeType === 'application/pdf';
     const userMessage = hasText ? message.trim().slice(0, 2000) : '';
 
     const allConversations = loadAllConversations();
@@ -224,13 +262,16 @@ app.post('/api/chat', requireClientId, async (req, res) => {
       return res.status(404).json({ error: 'Conversation not found' });
     }
 
-    console.log(`📩 [${req.clientId.slice(0, 8)} / ${conversation.title}] ${hasImage ? '[image] ' : ''}${userMessage}`);
+    console.log(`📩 [${req.clientId.slice(0, 8)} / ${conversation.title}] ${hasAttachment ? (isPdf ? '[pdf] ' : '[image] ') : ''}${userMessage}`);
 
     const userParts = [];
-    if (hasImage) {
+    if (hasAttachment) {
       userParts.push({ inline_data: { mime_type: image.mimeType, data: image.data } });
     }
-    userParts.push({ text: hasText ? userMessage : 'Décris cette image et dis-moi ce qu\'elle représente.' });
+    const defaultPrompt = isPdf
+      ? 'Résume ce document et explique-moi son contenu principal.'
+      : 'Décris cette image et dis-moi ce qu\'elle représente.';
+    userParts.push({ text: hasText ? userMessage : defaultPrompt });
 
     conversation.messages.push({ role: 'user', parts: userParts });
 

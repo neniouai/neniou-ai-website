@@ -320,10 +320,10 @@
       </div>
 
       <form class="input-bar" id="chat-form">
-        <button type="button" class="attach-btn" id="attach-btn" title="Joindre une image">
+        <button type="button" class="attach-btn" id="attach-btn" title="Joindre une image ou un PDF">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21.44 11.05l-9.19 9.19a5.5 5.5 0 01-7.78-7.78l9.19-9.19a3.5 3.5 0 014.95 4.95l-9.2 9.19a1.5 1.5 0 01-2.12-2.12l8.49-8.48"/></svg>
         </button>
-        <input type="file" id="image-input" accept="image/png,image/jpeg,image/webp,image/heic,image/heif" style="display:none">
+        <input type="file" id="image-input" accept="image/png,image/jpeg,image/webp,image/heic,image/heif,application/pdf" style="display:none">
         <input id="chat-input" type="text" placeholder="Écrivez un message pour Neniou AI..." autocomplete="off" />
         <button class="send-btn" id="send-btn" type="submit" disabled aria-label="Envoyer">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
@@ -414,22 +414,32 @@
     const file = imageInput.files[0];
     if (!file) return;
 
-    const MAX_BYTES = 6 * 1024 * 1024; // 6MB
+    const MAX_BYTES = 10 * 1024 * 1024; // 10MB
     if (file.size > MAX_BYTES) {
-      alert("L'image est trop grande (max 6 Mo).");
+      alert("Le fichier est trop grand (max 10 Mo).");
       imageInput.value = '';
       return;
     }
 
+    const isPdf = file.type === 'application/pdf';
+
     const reader = new FileReader();
     reader.onload = () => {
-      const dataUrl = reader.result; // "data:image/png;base64,AAAA..."
+      const dataUrl = reader.result; // "data:<mime>;base64,AAAA..."
       const [meta, base64] = dataUrl.split(',');
       const mimeType = meta.match(/data:(.*);base64/)[1];
 
-      attachedImage = { mimeType, data: base64, previewUrl: dataUrl };
-      imagePreviewThumb.src = dataUrl;
-      imagePreviewName.textContent = file.name;
+      // For PDFs there's no thumbnail to render as <img>, so previewUrl stays
+      // null and the chat bubble shows a small document chip instead.
+      attachedImage = { mimeType, data: base64, previewUrl: isPdf ? null : dataUrl, isPdf, fileName: file.name };
+
+      if (isPdf) {
+        imagePreviewThumb.style.display = 'none';
+      } else {
+        imagePreviewThumb.style.display = '';
+        imagePreviewThumb.src = dataUrl;
+      }
+      imagePreviewName.textContent = (isPdf ? '📄 ' : '') + file.name;
       imagePreviewBar.classList.add('visible');
       updateSendButtonState();
     };
@@ -443,7 +453,7 @@
     updateSendButtonState();
   }
 
-  function addMessage(text, role, imageUrl) {
+  function addMessage(text, role, imageUrl, fileName) {
     const row = document.createElement('div');
     row.className = 'msg-row ' + role;
 
@@ -462,6 +472,11 @@
       img.className = 'bubble-image';
       img.src = imageUrl;
       bubble.appendChild(img);
+    } else if (fileName) {
+      const chip = document.createElement('div');
+      chip.style.cssText = 'display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--bg-hover);border-radius:10px;margin-bottom:8px;font-size:0.85rem;';
+      chip.textContent = '📄 ' + fileName;
+      bubble.appendChild(chip);
     }
 
     if (text) {
@@ -578,7 +593,7 @@
     }
 
     showThreadView();
-    addMessage(message, 'user', attachedImage ? attachedImage.previewUrl : null);
+    addMessage(message, 'user', attachedImage ? attachedImage.previewUrl : null, attachedImage && attachedImage.isPdf ? attachedImage.fileName : null);
 
     const imageToSend = attachedImage;
     input.value = '';
