@@ -320,10 +320,10 @@
       </div>
 
       <form class="input-bar" id="chat-form">
-        <button type="button" class="attach-btn" id="attach-btn" title="Joindre une image ou un PDF">
+        <button type="button" class="attach-btn" id="attach-btn" title="Joindre une image ou un document (PDF, Word, Excel, texte)">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21.44 11.05l-9.19 9.19a5.5 5.5 0 01-7.78-7.78l9.19-9.19a3.5 3.5 0 014.95 4.95l-9.2 9.19a1.5 1.5 0 01-2.12-2.12l8.49-8.48"/></svg>
         </button>
-        <input type="file" id="image-input" accept="image/png,image/jpeg,image/webp,image/heic,image/heif,application/pdf" style="display:none">
+        <input type="file" id="image-input" accept="image/png,image/jpeg,image/webp,image/heic,image/heif,application/pdf,.docx,.xlsx,.xls,.txt,.csv,.md,.json,.html,.xml,.rtf" style="display:none">
         <input id="chat-input" type="text" placeholder="Écrivez un message pour Neniou AI..." autocomplete="off" />
         <button class="send-btn" id="send-btn" type="submit" disabled aria-label="Envoyer">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
@@ -410,6 +410,22 @@
 
   attachBtn.addEventListener('click', () => imageInput.click());
 
+  const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+  const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+  const XLS_MIME = 'application/vnd.ms-excel';
+  const EXTENSION_MIME_FALLBACK = {
+    docx: DOCX_MIME, xlsx: XLSX_MIME, xls: XLS_MIME,
+    txt: 'text/plain', csv: 'text/csv', md: 'text/markdown',
+    json: 'application/json', html: 'text/html', xml: 'text/xml', rtf: 'application/rtf'
+  };
+  const DOCUMENT_MIMES = [DOCX_MIME, XLSX_MIME, XLS_MIME, 'text/plain', 'text/csv', 'text/markdown', 'application/json', 'text/html', 'text/xml', 'application/rtf'];
+
+  function resolveMimeType(file) {
+    if (file.type) return file.type;
+    const ext = file.name.split('.').pop().toLowerCase();
+    return EXTENSION_MIME_FALLBACK[ext] || 'application/octet-stream';
+  }
+
   imageInput.addEventListener('change', () => {
     const file = imageInput.files[0];
     if (!file) return;
@@ -421,25 +437,39 @@
       return;
     }
 
-    const isPdf = file.type === 'application/pdf';
+    const mimeType = resolveMimeType(file);
+    const isPdf = mimeType === 'application/pdf';
+    const isImage = mimeType.startsWith('image/');
+    const isDocument = DOCUMENT_MIMES.includes(mimeType);
+
+    if (!isPdf && !isImage && !isDocument) {
+      alert('Type de fichier non pris en charge.');
+      imageInput.value = '';
+      return;
+    }
 
     const reader = new FileReader();
     reader.onload = () => {
       const dataUrl = reader.result; // "data:<mime>;base64,AAAA..."
-      const [meta, base64] = dataUrl.split(',');
-      const mimeType = meta.match(/data:(.*);base64/)[1];
+      const base64 = dataUrl.split(',')[1];
 
-      // For PDFs there's no thumbnail to render as <img>, so previewUrl stays
-      // null and the chat bubble shows a small document chip instead.
-      attachedImage = { mimeType, data: base64, previewUrl: isPdf ? null : dataUrl, isPdf, fileName: file.name };
+      // Only images get a real thumbnail — PDFs and documents show a chip instead.
+      attachedImage = {
+        mimeType,
+        data: base64,
+        previewUrl: isImage ? dataUrl : null,
+        isPdf,
+        isDocument,
+        fileName: file.name
+      };
 
-      if (isPdf) {
-        imagePreviewThumb.style.display = 'none';
-      } else {
+      if (isImage) {
         imagePreviewThumb.style.display = '';
         imagePreviewThumb.src = dataUrl;
+      } else {
+        imagePreviewThumb.style.display = 'none';
       }
-      imagePreviewName.textContent = (isPdf ? '📄 ' : '') + file.name;
+      imagePreviewName.textContent = (isImage ? '' : '📄 ') + file.name;
       imagePreviewBar.classList.add('visible');
       updateSendButtonState();
     };
@@ -593,9 +623,14 @@
     }
 
     showThreadView();
-    addMessage(message, 'user', attachedImage ? attachedImage.previewUrl : null, attachedImage && attachedImage.isPdf ? attachedImage.fileName : null);
+    addMessage(
+      message,
+      'user',
+      attachedImage ? attachedImage.previewUrl : null,
+      attachedImage && (attachedImage.isPdf || attachedImage.isDocument) ? attachedImage.fileName : null
+    );
 
-    const imageToSend = attachedImage;
+    const fileToSend = attachedImage;
     input.value = '';
     removeAttachedImage();
     sendBtn.disabled = true;
@@ -604,8 +639,12 @@
 
     try {
       const body = { conversationId: currentConversationId, message };
-      if (imageToSend) {
-        body.image = { mimeType: imageToSend.mimeType, data: imageToSend.data };
+      if (fileToSend) {
+        if (fileToSend.isDocument) {
+          body.document = { mimeType: fileToSend.mimeType, data: fileToSend.data, fileName: fileToSend.fileName };
+        } else {
+          body.image = { mimeType: fileToSend.mimeType, data: fileToSend.data };
+        }
       }
 
       const response = await apiFetch('/api/chat', {

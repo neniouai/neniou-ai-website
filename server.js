@@ -4,6 +4,8 @@ import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
+import mammoth from 'mammoth';
+import * as XLSX from 'xlsx';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -188,6 +190,47 @@ async function askGemini(contents, attempt = 1) {
 const ALLOWED_ATTACHMENT_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/heic', 'image/heif', 'application/pdf'];
 const MAX_ATTACHMENT_BASE64_LENGTH = 14_000_000; // ~10MB raw, enough for most PDFs and phone photos
 
+// Office/text documents Gemini can't read directly as inline_data — we extract
+// their text content server-side first, then send that text in the prompt.
+const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+const XLS_MIME = 'application/vnd.ms-excel';
+const PLAIN_TEXT_MIMES = ['text/plain', 'text/csv', 'text/markdown', 'application/json', 'text/html', 'text/xml', 'application/rtf'];
+const EXTRACTABLE_DOCUMENT_TYPES = [DOCX_MIME, XLSX_MIME, XLS_MIME, ...PLAIN_TEXT_MIMES];
+
+const MAX_EXTRACTED_TEXT_CHARS = 20000; // keep prompts reasonably sized
+
+async function extractDocumentText(mimeType, base64Data, fileName) {
+  const buffer = Buffer.from(base64Data, 'base64');
+
+  if (mimeType === DOCX_MIME) {
+    const result = await mammoth.extractRawText({ buffer });
+    return result.value;
+  }
+
+  if (mimeType === XLSX_MIME || mimeType === XLS_MIME) {
+    const workbook = XLSX.read(buffer, { type: 'buffer' });
+    let combined = '';
+    for (const sheetName of workbook.SheetNames) {
+      const sheet = workbook.Sheets[sheetName];
+      const csv = XLSX.utils.sheet_to_csv(sheet);
+      combined += `--- Feuille: ${sheetName} ---\n${csv}\n\n`;
+    }
+    return combined;
+  }
+
+  if (PLAIN_TEXT_MIMES.includes(mimeType)) {
+    return buffer.toString('utf-8');
+  }
+
+  throw new Error(`Unsupported document type for extraction: ${mimeType}`);
+}
+
+function truncateText(text) {
+  if (text.length <= MAX_EXTRACTED_TEXT_CHARS) return { text, truncated: false };
+  return { text: text.slice(0, MAX_EXTRACTED_TEXT_CHARS), truncated: true };
+}
+
 // =====================================================================
 // FAIR-USE LIMIT — the Gemini API key is shared across every visitor.
 // This caps each anonymous visitor to a reasonable number of messages
@@ -222,7 +265,9 @@ function checkAndConsumeQuota(clientId) {
 // =====================================================================
 app.post('/api/chat', requireClientId, async (req, res) => {
   try {
-    const { conversationId, message, image } = req.body; // 'image' now carries any attachment: image or PDF
+    const { conversationId, message, image, document } = req.body;
+    // 'image' = image or PDF, sent as-is to Gemini (inline_data)
+    // 'document' = docx/xlsx/text files, text is extracted server-side first
 
     if (!conversationId) {
       return res.status(400).json({ error: 'conversationId is required' });
@@ -237,8 +282,9 @@ app.post('/api/chat', requireClientId, async (req, res) => {
 
     const hasText = typeof message === 'string' && message.trim().length > 0;
     const hasAttachment = image && typeof image.data === 'string' && typeof image.mimeType === 'string';
+    const hasDocument = document && typeof document.data === 'string' && typeof document.mimeType === 'string';
 
-    if (!hasText && !hasAttachment) {
+    if (!hasText && !hasAttachment && !hasDocument) {
       return res.status(400).json({ error: 'message or attachment is required' });
     }
 
@@ -251,8 +297,31 @@ app.post('/api/chat', requireClientId, async (req, res) => {
       }
     }
 
+    if (hasDocument) {
+      if (!EXTRACTABLE_DOCUMENT_TYPES.includes(document.mimeType)) {
+        return res.status(400).json({ error: 'Unsupported document type' });
+      }
+      if (document.data.length > MAX_ATTACHMENT_BASE64_LENGTH) {
+        return res.status(400).json({ error: 'File is too large' });
+      }
+    }
+
     const isPdf = hasAttachment && image.mimeType === 'application/pdf';
     const userMessage = hasText ? message.trim().slice(0, 2000) : '';
+
+    let extractedDocText = '';
+    let extractionTruncated = false;
+    if (hasDocument) {
+      try {
+        const raw = await extractDocumentText(document.mimeType, document.data, document.fileName);
+        const { text, truncated } = truncateText(raw);
+        extractedDocText = text;
+        extractionTruncated = truncated;
+      } catch (err) {
+        console.error('❌ Document extraction error:', err.message || err);
+        return res.status(400).json({ error: "Impossible de lire ce document. Le fichier est peut-être corrompu ou dans un format inattendu." });
+      }
+    }
 
     const allConversations = loadAllConversations();
     const userConversations = allConversations[req.clientId] || [];
@@ -262,16 +331,25 @@ app.post('/api/chat', requireClientId, async (req, res) => {
       return res.status(404).json({ error: 'Conversation not found' });
     }
 
-    console.log(`📩 [${req.clientId.slice(0, 8)} / ${conversation.title}] ${hasAttachment ? (isPdf ? '[pdf] ' : '[image] ') : ''}${userMessage}`);
+    const logTag = hasDocument ? '[document] ' : hasAttachment ? (isPdf ? '[pdf] ' : '[image] ') : '';
+    console.log(`📩 [${req.clientId.slice(0, 8)} / ${conversation.title}] ${logTag}${userMessage}`);
 
     const userParts = [];
     if (hasAttachment) {
       userParts.push({ inline_data: { mime_type: image.mimeType, data: image.data } });
     }
-    const defaultPrompt = isPdf
-      ? 'Résume ce document et explique-moi son contenu principal.'
-      : 'Décris cette image et dis-moi ce qu\'elle représente.';
-    userParts.push({ text: hasText ? userMessage : defaultPrompt });
+
+    if (hasDocument) {
+      const truncNote = extractionTruncated ? '\n\n[Note: le document est long, seul le début a été inclus.]' : '';
+      const docBlock = `Contenu du document "${document.fileName || 'document'}":\n\n${extractedDocText}${truncNote}`;
+      const userAsk = hasText ? userMessage : 'Résume ce document et explique-moi son contenu principal.';
+      userParts.push({ text: `${docBlock}\n\n${userAsk}` });
+    } else {
+      const defaultPrompt = isPdf
+        ? 'Résume ce document et explique-moi son contenu principal.'
+        : 'Décris cette image et dis-moi ce qu\'elle représente.';
+      userParts.push({ text: hasText ? userMessage : defaultPrompt });
+    }
 
     conversation.messages.push({ role: 'user', parts: userParts });
 
