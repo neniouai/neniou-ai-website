@@ -164,39 +164,70 @@
   .msg-row.user .bubble { background: var(--bg-elevated); border: 1px solid var(--border); border-bottom-right-radius: 4px; }
   .msg-row.bot .bubble { background: transparent; padding: 6px 0; color: var(--text); }
 
+  .bubble-image {
+    max-width: 260px;
+    max-height: 260px;
+    border-radius: 14px;
+    display: block;
+    margin-bottom: 8px;
+    object-fit: cover;
+  }
+
   .typing-dots { display: flex; gap: 5px; padding: 10px 0; }
   .typing-dots span { width: 6px; height: 6px; border-radius: 50%; background: var(--text-dim); animation: bounce 1.1s infinite ease-in-out; }
   .typing-dots span:nth-child(2) { animation-delay: .15s; }
   .typing-dots span:nth-child(3) { animation-delay: .3s; }
   @keyframes bounce { 0%, 60%, 100% { opacity: .3; transform: translateY(0); } 30% { opacity: 1; transform: translateY(-3px); } }
 
-  .input-zone { padding: 10px 20px 22px; display: flex; justify-content: center; }
+  .input-zone { padding: 10px 20px 22px; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+
+  .image-preview-bar {
+    width: 100%;
+    max-width: 780px;
+    display: none;
+    align-items: center;
+    gap: 10px;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 8px 12px;
+  }
+  .image-preview-bar.visible { display: flex; }
+  .image-preview-bar img { width: 40px; height: 40px; border-radius: 8px; object-fit: cover; }
+  .image-preview-bar span { flex: 1; font-size: 0.82rem; color: var(--text-dim); }
+  .image-preview-remove {
+    background: none; border: none; color: var(--text-dim);
+    cursor: pointer; font-size: 1.1rem; line-height: 1; padding: 4px;
+  }
+  .image-preview-remove:hover { color: var(--error); }
+
   .input-bar {
     width: 100%; max-width: 780px;
     background: var(--bg-input);
     border: 1px solid var(--border);
     border-radius: var(--radius);
-    display: flex; align-items: center; gap: 10px;
-    padding: 8px 8px 8px 20px;
+    display: flex; align-items: center; gap: 6px;
+    padding: 8px 8px 8px 10px;
     transition: border-color .15s;
   }
   .input-bar:focus-within { border-color: #4a4d51; }
   .input-bar input {
     flex: 1; background: transparent; border: none; outline: none;
-    color: var(--text); font-size: 0.98rem; font-family: inherit; padding: 10px 0;
+    color: var(--text); font-size: 0.98rem; font-family: inherit; padding: 10px 6px;
   }
   .input-bar input::placeholder { color: var(--text-dim); }
 
-  .send-btn {
+  .attach-btn, .send-btn {
     width: 38px; height: 38px; border-radius: 50%; border: none;
     background: var(--bg-elevated); color: var(--text-dim);
     display: flex; align-items: center; justify-content: center;
     cursor: pointer; flex-shrink: 0;
     transition: background .15s, color .15s;
   }
+  .attach-btn:hover { background: #303134; color: var(--text); }
   .send-btn:not(:disabled):hover { background: #303134; color: var(--text); }
   .send-btn:disabled { opacity: .4; cursor: default; }
-  .send-btn svg { width: 18px; height: 18px; }
+  .attach-btn svg, .send-btn svg { width: 18px; height: 18px; }
 
   .disclaimer { text-align: center; font-size: 0.72rem; color: var(--text-dim); padding-bottom: 14px; }
 
@@ -282,7 +313,17 @@
     </div>
 
     <div class="input-zone">
+      <div class="image-preview-bar" id="image-preview-bar">
+        <img id="image-preview-thumb" src="" alt="">
+        <span id="image-preview-name"></span>
+        <button type="button" class="image-preview-remove" onclick="removeAttachedImage()">✕</button>
+      </div>
+
       <form class="input-bar" id="chat-form">
+        <button type="button" class="attach-btn" id="attach-btn" title="Joindre une image">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21.44 11.05l-9.19 9.19a5.5 5.5 0 01-7.78-7.78l9.19-9.19a3.5 3.5 0 014.95 4.95l-9.2 9.19a1.5 1.5 0 01-2.12-2.12l8.49-8.48"/></svg>
+        </button>
+        <input type="file" id="image-input" accept="image/png,image/jpeg,image/webp,image/heic,image/heif" style="display:none">
         <input id="chat-input" type="text" placeholder="Écrivez un message pour Neniou AI..." autocomplete="off" />
         <button class="send-btn" id="send-btn" type="submit" disabled aria-label="Envoyer">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
@@ -296,8 +337,6 @@
 
 <script>
   // ===================== ANONYMOUS CLIENT ID =====================
-  // No accounts: each browser gets its own random ID, stored locally, so
-  // everyone's conversations stay separate without login/passwords.
   function getClientId() {
     let id = localStorage.getItem('neniou_client_id');
     if (!id) {
@@ -353,14 +392,58 @@
   const input = document.getElementById('chat-input');
   const sendBtn = document.getElementById('send-btn');
   const conversationListEl = document.getElementById('conversation-list');
+  const attachBtn = document.getElementById('attach-btn');
+  const imageInput = document.getElementById('image-input');
+  const imagePreviewBar = document.getElementById('image-preview-bar');
+  const imagePreviewThumb = document.getElementById('image-preview-thumb');
+  const imagePreviewName = document.getElementById('image-preview-name');
 
   let currentConversationId = null;
+  let attachedImage = null; // { mimeType, data (base64, no prefix), previewUrl }
 
-  input.addEventListener('input', () => {
-    sendBtn.disabled = input.value.trim().length === 0;
+  function updateSendButtonState() {
+    const hasText = input.value.trim().length > 0;
+    sendBtn.disabled = !hasText && !attachedImage;
+  }
+
+  input.addEventListener('input', updateSendButtonState);
+
+  attachBtn.addEventListener('click', () => imageInput.click());
+
+  imageInput.addEventListener('change', () => {
+    const file = imageInput.files[0];
+    if (!file) return;
+
+    const MAX_BYTES = 6 * 1024 * 1024; // 6MB
+    if (file.size > MAX_BYTES) {
+      alert("L'image est trop grande (max 6 Mo).");
+      imageInput.value = '';
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result; // "data:image/png;base64,AAAA..."
+      const [meta, base64] = dataUrl.split(',');
+      const mimeType = meta.match(/data:(.*);base64/)[1];
+
+      attachedImage = { mimeType, data: base64, previewUrl: dataUrl };
+      imagePreviewThumb.src = dataUrl;
+      imagePreviewName.textContent = file.name;
+      imagePreviewBar.classList.add('visible');
+      updateSendButtonState();
+    };
+    reader.readAsDataURL(file);
   });
 
-  function addMessage(text, role) {
+  function removeAttachedImage() {
+    attachedImage = null;
+    imageInput.value = '';
+    imagePreviewBar.classList.remove('visible');
+    updateSendButtonState();
+  }
+
+  function addMessage(text, role, imageUrl) {
     const row = document.createElement('div');
     row.className = 'msg-row ' + role;
 
@@ -373,9 +456,21 @@
 
     const bubble = document.createElement('div');
     bubble.className = 'bubble';
-    bubble.textContent = text;
-    row.appendChild(bubble);
 
+    if (imageUrl) {
+      const img = document.createElement('img');
+      img.className = 'bubble-image';
+      img.src = imageUrl;
+      bubble.appendChild(img);
+    }
+
+    if (text) {
+      const textNode = document.createElement('div');
+      textNode.textContent = text;
+      bubble.appendChild(textNode);
+    }
+
+    row.appendChild(bubble);
     thread.appendChild(row);
     threadWrap.scrollTop = threadWrap.scrollHeight;
     return bubble;
@@ -476,24 +571,32 @@
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
     const message = input.value.trim();
-    if (!message) return;
+    if (!message && !attachedImage) return;
 
     if (!currentConversationId) {
       await createNewConversation();
     }
 
     showThreadView();
-    addMessage(message, 'user');
+    addMessage(message, 'user', attachedImage ? attachedImage.previewUrl : null);
+
+    const imageToSend = attachedImage;
     input.value = '';
+    removeAttachedImage();
     sendBtn.disabled = true;
 
     const typingRow = addTypingIndicator();
 
     try {
+      const body = { conversationId: currentConversationId, message };
+      if (imageToSend) {
+        body.image = { mimeType: imageToSend.mimeType, data: imageToSend.data };
+      }
+
       const response = await apiFetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ conversationId: currentConversationId, message })
+        body: JSON.stringify(body)
       });
 
       if (!response.ok) {

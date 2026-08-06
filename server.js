@@ -7,11 +7,11 @@ import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
-app.use(express.json());
+app.use(express.json({ limit: '12mb' })); // raised limit to allow base64 image uploads
 app.use(express.static(path.join(__dirname, 'public')));
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-const GEMINI_MODEL = 'gemini-3.5-flash-lite';
+const GEMINI_MODEL = 'gemini-3.5-flash-lite'; // this model understands images natively, no extra cost tier
 const PORT = process.env.PORT || 3000;
 
 if (!GEMINI_API_KEY) {
@@ -20,12 +20,10 @@ if (!GEMINI_API_KEY) {
 }
 
 // =====================================================================
-// SIMPLE FILE-BASED STORAGE — no accounts, no passwords.
-// Each visitor is identified by an anonymous client ID generated in their
-// browser (stored in localStorage) and sent as the "X-Client-Id" header.
+// SIMPLE FILE-BASED DATABASE — no accounts, conversations keyed by an
+// anonymous client ID generated and stored in the visitor's browser.
 // =====================================================================
 const DATA_DIR = path.join(__dirname, 'data');
-// conversations.json shape: { [clientId]: [ { id, title, messages: [{role, parts}], updatedAt } ] }
 const CONVERSATIONS_FILE = path.join(DATA_DIR, 'conversations.json');
 
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -40,15 +38,13 @@ function saveAllConversations(data) {
 
 function makeTitle(firstMessage) {
   const clean = firstMessage.trim().replace(/\s+/g, ' ');
+  if (!clean) return 'Image';
   return clean.length > 40 ? clean.slice(0, 40) + '…' : clean;
 }
 
-// Every request must carry a client ID (the frontend generates and persists
-// one automatically). If it's missing, reject clearly instead of silently
-// mixing everyone's conversations under one bucket.
 function requireClientId(req, res, next) {
   const clientId = req.headers['x-client-id'];
-  if (!clientId || typeof clientId !== 'string' || clientId.length < 8) {
+  if (!clientId || typeof clientId !== 'string' || clientId.length > 200) {
     return res.status(400).json({ error: 'Missing client id' });
   }
   req.clientId = clientId;
@@ -56,13 +52,12 @@ function requireClientId(req, res, next) {
 }
 
 // =====================================================================
-// CONVERSATION ROUTES — each conversation has its own isolated history
+// CONVERSATION ROUTES
 // =====================================================================
-
 app.get('/api/conversations', requireClientId, (req, res) => {
   const allConversations = loadAllConversations();
-  const myConversations = allConversations[req.clientId] || [];
-  const summaries = myConversations
+  const userConversations = allConversations[req.clientId] || [];
+  const summaries = userConversations
     .map((c) => ({ id: c.id, title: c.title, updatedAt: c.updatedAt }))
     .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
   res.json({ conversations: summaries });
@@ -70,7 +65,7 @@ app.get('/api/conversations', requireClientId, (req, res) => {
 
 app.post('/api/conversations', requireClientId, (req, res) => {
   const allConversations = loadAllConversations();
-  const myConversations = allConversations[req.clientId] || [];
+  const userConversations = allConversations[req.clientId] || [];
 
   const newConversation = {
     id: crypto.randomUUID(),
@@ -79,8 +74,8 @@ app.post('/api/conversations', requireClientId, (req, res) => {
     updatedAt: new Date().toISOString()
   };
 
-  myConversations.push(newConversation);
-  allConversations[req.clientId] = myConversations;
+  userConversations.push(newConversation);
+  allConversations[req.clientId] = userConversations;
   saveAllConversations(allConversations);
 
   res.json({ id: newConversation.id });
@@ -88,20 +83,29 @@ app.post('/api/conversations', requireClientId, (req, res) => {
 
 app.get('/api/conversations/:id', requireClientId, (req, res) => {
   const allConversations = loadAllConversations();
-  const myConversations = allConversations[req.clientId] || [];
-  const conversation = myConversations.find((c) => c.id === req.params.id);
+  const userConversations = allConversations[req.clientId] || [];
+  const conversation = userConversations.find((c) => c.id === req.params.id);
 
   if (!conversation) {
     return res.status(404).json({ error: 'Conversation not found' });
   }
 
-  res.json({ messages: conversation.messages });
+  // Strip raw image bytes from history responses to keep payloads light —
+  // the frontend only needs a placeholder to display for past image messages.
+  const lightMessages = conversation.messages.map((m) => ({
+    role: m.role,
+    parts: m.parts.map((p) =>
+      p.inline_data ? { text: '[Image]' } : p
+    )
+  }));
+
+  res.json({ messages: lightMessages });
 });
 
 app.delete('/api/conversations/:id', requireClientId, (req, res) => {
   const allConversations = loadAllConversations();
-  const myConversations = allConversations[req.clientId] || [];
-  allConversations[req.clientId] = myConversations.filter((c) => c.id !== req.params.id);
+  const userConversations = allConversations[req.clientId] || [];
+  allConversations[req.clientId] = userConversations.filter((c) => c.id !== req.params.id);
   saveAllConversations(allConversations);
   res.json({ ok: true });
 });
@@ -118,7 +122,8 @@ STRICT RULES:
 4. Stay friendly, clear, and direct in your answers.
 5. Remember what was said earlier in this conversation (the history below) and stay consistent with it — don't treat every message as a brand new conversation.
 6. Never repeat a previous reply word-for-word. Each answer must directly address what the person just wrote, even if their message is short, informal, or uses slang.
-7. Never use markdown formatting (no **bold**, no *italics*, no # headers, no markdown bullet lists with - or *). Write in plain text only. For lists, use plain numbered lines like "1. Item" or simple line breaks — never asterisks or pound signs.`;
+7. Never use markdown formatting (no **bold**, no *italics*, no # headers, no markdown bullet lists with - or *). Write in plain text only. For lists, use plain numbered lines like "1. Item" or simple line breaks — never asterisks or pound signs.
+8. If the person sends an image, look at it carefully and respond to what they asked about it (or describe it helpfully if they didn't ask a specific question).`;
 
 const MAX_HISTORY_MESSAGES = 30;
 
@@ -180,30 +185,54 @@ async function askGemini(contents, attempt = 1) {
   return reply.trim();
 }
 
+const ALLOWED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/heic', 'image/heif'];
+const MAX_IMAGE_BASE64_LENGTH = 8_000_000; // ~6MB raw, generous for phone photos
+
 // =====================================================================
-// CHAT ROUTE — scoped to a single conversationId, owned by the anonymous client
+// CHAT ROUTE — supports text, and optionally an attached image
 // =====================================================================
 app.post('/api/chat', requireClientId, async (req, res) => {
   try {
-    const { conversationId, message } = req.body;
+    const { conversationId, message, image } = req.body;
 
-    if (!conversationId || !message || typeof message !== 'string' || !message.trim()) {
-      return res.status(400).json({ error: 'conversationId and message are required' });
+    if (!conversationId) {
+      return res.status(400).json({ error: 'conversationId is required' });
+    }
+    const hasText = typeof message === 'string' && message.trim().length > 0;
+    const hasImage = image && typeof image.data === 'string' && typeof image.mimeType === 'string';
+
+    if (!hasText && !hasImage) {
+      return res.status(400).json({ error: 'message or image is required' });
     }
 
-    const userMessage = message.trim().slice(0, 2000);
+    if (hasImage) {
+      if (!ALLOWED_IMAGE_TYPES.includes(image.mimeType)) {
+        return res.status(400).json({ error: 'Unsupported image type' });
+      }
+      if (image.data.length > MAX_IMAGE_BASE64_LENGTH) {
+        return res.status(400).json({ error: 'Image is too large' });
+      }
+    }
+
+    const userMessage = hasText ? message.trim().slice(0, 2000) : '';
 
     const allConversations = loadAllConversations();
-    const myConversations = allConversations[req.clientId] || [];
-    const conversation = myConversations.find((c) => c.id === conversationId);
+    const userConversations = allConversations[req.clientId] || [];
+    const conversation = userConversations.find((c) => c.id === conversationId);
 
     if (!conversation) {
       return res.status(404).json({ error: 'Conversation not found' });
     }
 
-    console.log(`📩 [${req.clientId.slice(0, 8)} / ${conversation.title}] ${userMessage}`);
+    console.log(`📩 [${req.clientId.slice(0, 8)} / ${conversation.title}] ${hasImage ? '[image] ' : ''}${userMessage}`);
 
-    conversation.messages.push({ role: 'user', parts: [{ text: userMessage }] });
+    const userParts = [];
+    if (hasImage) {
+      userParts.push({ inline_data: { mime_type: image.mimeType, data: image.data } });
+    }
+    userParts.push({ text: hasText ? userMessage : 'Décris cette image et dis-moi ce qu\'elle représente.' });
+
+    conversation.messages.push({ role: 'user', parts: userParts });
 
     const reply = await askGemini(conversation.messages);
 
