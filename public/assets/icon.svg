@@ -1,18 +1,18 @@
 <svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
   <defs>
-    <linearGradient id="niaGrad" x1="8" y1="10" x2="56" y2="54" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="#4a8fe7"/>
-      <stop offset="55%" stop-color="#2fbf9f"/>
-      <stop offset="100%" stop-color="#34c98a"/>
-    </linearGradient>
+    <radialGradient id="orbGrad" cx="38%" cy="32%" r="75%">
+      <stop offset="0%" stop-color="#7fc4ff"/>
+      <stop offset="35%" stop-color="#4a8fe7"/>
+      <stop offset="70%" stop-color="#2fbf9f"/>
+      <stop offset="100%" stop-color="#249e73"/>
+    </radialGradient>
+    <radialGradient id="orbHighlight" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.55"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
   </defs>
 
-  <circle cx="32" cy="32" r="31" fill="#0e0f11" stroke="url(#niaGrad)" stroke-width="1.4"/>
-
-  <path d="M20 44 L20 20 L44 44 L44 20"
-        fill="none"
-        stroke="url(#niaGrad)"
-        stroke-width="5.5"
-        stroke-linecap="round"
-        stroke-linejoin="round"/>
+  <!-- Simple glowing orb mark — minimal, premium, no star/sparkle, no bubble -->
+  <circle cx="32" cy="32" r="26" fill="url(#orbGrad)"/>
+  <ellipse cx="24" cy="22" rx="14" ry="10" fill="url(#orbHighlight)"/>
 </svg>
