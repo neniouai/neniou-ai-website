@@ -359,6 +359,89 @@ function checkAndConsumeQuota(clientId) {
 // =====================================================================
 // CHAT ROUTE
 // =====================================================================
+// =====================================================================
+// GUEST CHAT — lets visitors try Neniou AI without signing in, like
+// Gemini/ChatGPT do. Limited to a few messages, kept only in memory
+// (not saved to Firestore), and reset if the server restarts.
+// =====================================================================
+const GUEST_MESSAGE_LIMIT = Number(process.env.GUEST_MESSAGE_LIMIT) || 3;
+const guestSessions = new Map(); // guestId -> { messages: [...], count }
+
+app.post('/api/guest-chat', async (req, res) => {
+  try {
+    const guestId = req.headers['x-guest-id'];
+    if (!guestId || typeof guestId !== 'string' || guestId.length > 200) {
+      return res.status(400).json({ error: 'Missing guest id' });
+    }
+
+    const { message, image, document } = req.body;
+
+    let session = guestSessions.get(guestId);
+    if (!session) {
+      session = { messages: [], count: 0 };
+      guestSessions.set(guestId, session);
+    }
+
+    if (session.count >= GUEST_MESSAGE_LIMIT) {
+      return res.status(403).json({ error: 'Guest message limit reached. Please sign in to continue.' });
+    }
+
+    const hasText = typeof message === 'string' && message.trim().length > 0;
+    const hasAttachment = image && typeof image.data === 'string' && typeof image.mimeType === 'string';
+    const hasDocument = document && typeof document.data === 'string' && typeof document.mimeType === 'string';
+
+    if (!hasText && !hasAttachment && !hasDocument) {
+      return res.status(400).json({ error: 'message or attachment is required' });
+    }
+
+    if (hasAttachment && !ALLOWED_ATTACHMENT_TYPES.includes(image.mimeType)) {
+      return res.status(400).json({ error: 'Unsupported file type' });
+    }
+    if (hasDocument && !EXTRACTABLE_DOCUMENT_TYPES.includes(document.mimeType)) {
+      return res.status(400).json({ error: 'Unsupported document type' });
+    }
+
+    const isPdf = hasAttachment && image.mimeType === 'application/pdf';
+    const userMessage = hasText ? message.trim().slice(0, 2000) : '';
+
+    let extractedDocText = '';
+    if (hasDocument) {
+      try {
+        const raw = await extractDocumentText(document.mimeType, document.data);
+        extractedDocText = truncateText(raw).text;
+      } catch (err) {
+        return res.status(400).json({ error: "Impossible de lire ce document." });
+      }
+    }
+
+    console.log(`👋 [guest ${guestId.slice(0, 8)}] (${userMessage.length} caractères)`);
+
+    const userParts = [];
+    if (hasAttachment) {
+      userParts.push({ inline_data: { mime_type: image.mimeType, data: image.data } });
+    }
+    if (hasDocument) {
+      const userAsk = hasText ? userMessage : 'Résume ce document.';
+      userParts.push({ text: `Contenu du document:\n\n${extractedDocText}\n\n${userAsk}` });
+    } else {
+      const defaultPrompt = isPdf ? 'Résume ce document.' : 'Décris cette image.';
+      userParts.push({ text: hasText ? userMessage : defaultPrompt });
+    }
+
+    session.messages.push({ role: 'user', parts: userParts });
+
+    const reply = await askGemini(session.messages);
+
+    session.messages.push({ role: 'model', parts: [{ text: reply }] });
+    session.count += 1;
+
+    res.json({ reply, remaining: GUEST_MESSAGE_LIMIT - session.count });
+  } catch (error) {
+    console.error('❌ Guest chat error:', error.message || error);
+    res.status(500).json({ error: 'Something went wrong, please try again.' });
+  }
+});
+
 app.post('/api/chat', requireClientId, async (req, res) => {
   try {
     const { conversationId, message, image, document } = req.body;
