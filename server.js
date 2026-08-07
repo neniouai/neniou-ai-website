@@ -1,19 +1,21 @@
 import 'dotenv/config';
 import express from 'express';
+import rateLimit from 'express-rate-limit';
 import path from 'path';
-import fs from 'fs';
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import mammoth from 'mammoth';
 import * as XLSX from 'xlsx';
+import admin from 'firebase-admin';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
+app.set('trust proxy', 1); // needed on Render for express-rate-limit to see real client IPs
 app.use(express.json({ limit: '20mb' })); // raised limit to allow base64 image/PDF uploads
 app.use(express.static(path.join(__dirname, 'public')));
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-const GEMINI_MODEL = 'gemini-3.5-flash-lite'; // this model understands images natively, no extra cost tier
+const GEMINI_MODEL = 'gemini-3.5-flash-lite';
 const PORT = process.env.PORT || 3000;
 
 if (!GEMINI_API_KEY) {
@@ -22,20 +24,68 @@ if (!GEMINI_API_KEY) {
 }
 
 // =====================================================================
-// SIMPLE FILE-BASED DATABASE — no accounts, conversations keyed by an
-// anonymous client ID generated and stored in the visitor's browser.
+// FIREBASE (Firestore) — persistent storage that survives restarts and
+// deploys, unlike local JSON files on Render's ephemeral filesystem.
 // =====================================================================
-const DATA_DIR = path.join(__dirname, 'data');
-const CONVERSATIONS_FILE = path.join(DATA_DIR, 'conversations.json');
-
-if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-if (!fs.existsSync(CONVERSATIONS_FILE)) fs.writeFileSync(CONVERSATIONS_FILE, '{}');
-
-function loadAllConversations() {
-  return JSON.parse(fs.readFileSync(CONVERSATIONS_FILE, 'utf-8'));
+if (!process.env.FIREBASE_SERVICE_ACCOUNT) {
+  console.error('❌ Missing FIREBASE_SERVICE_ACCOUNT in your .env file (paste the full service account JSON as one line).');
+  process.exit(1);
 }
-function saveAllConversations(data) {
-  fs.writeFileSync(CONVERSATIONS_FILE, JSON.stringify(data, null, 2));
+
+let serviceAccount;
+try {
+  serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+} catch {
+  console.error('❌ FIREBASE_SERVICE_ACCOUNT is not valid JSON. Check your .env file.');
+  process.exit(1);
+}
+
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount)
+});
+
+const db = admin.firestore();
+const conversationsCollection = db.collection('conversations');
+
+async function listConversationsForClient(clientId) {
+  const snapshot = await conversationsCollection
+    .where('clientId', '==', clientId)
+    .orderBy('updatedAt', 'desc')
+    .get();
+
+  return snapshot.docs.map((doc) => {
+    const data = doc.data();
+    return { id: doc.id, title: data.title, updatedAt: data.updatedAt };
+  });
+}
+
+async function createConversationForClient(clientId) {
+  const docRef = await conversationsCollection.add({
+    clientId,
+    title: 'New chat',
+    messages: [],
+    updatedAt: new Date().toISOString()
+  });
+  return docRef.id;
+}
+
+async function getConversationForClient(clientId, conversationId) {
+  const doc = await conversationsCollection.doc(conversationId).get();
+  if (!doc.exists) return null;
+  const data = doc.data();
+  if (data.clientId !== clientId) return null; // don't leak other people's conversations
+  return { id: doc.id, ...data };
+}
+
+async function saveConversation(conversationId, updates) {
+  await conversationsCollection.doc(conversationId).set(updates, { merge: true });
+}
+
+async function deleteConversationForClient(clientId, conversationId) {
+  const doc = await conversationsCollection.doc(conversationId).get();
+  if (!doc.exists || doc.data().clientId !== clientId) return false;
+  await conversationsCollection.doc(conversationId).delete();
+  return true;
 }
 
 function makeTitle(firstMessage) {
@@ -54,62 +104,96 @@ function requireClientId(req, res, next) {
 }
 
 // =====================================================================
+// HEALTH CHECK — used by an uptime pinger (e.g. UptimeRobot) to keep the
+// free Render instance from spinning down after 15 minutes of inactivity.
+// =====================================================================
+app.get('/health', (req, res) => {
+  res.status(200).json({ status: 'ok', time: new Date().toISOString() });
+});
+
+// =====================================================================
+// BASIC RATE LIMITING — burst protection on top of the daily fair-use
+// quota below. This stops a script from hammering the API in seconds.
+// =====================================================================
+const apiLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Trop de requêtes en peu de temps. Attendez une minute.' }
+});
+app.use('/api/', apiLimiter);
+
+// =====================================================================
 // CONVERSATION ROUTES
 // =====================================================================
-app.get('/api/conversations', requireClientId, (req, res) => {
-  const allConversations = loadAllConversations();
-  const userConversations = allConversations[req.clientId] || [];
-  const summaries = userConversations
-    .map((c) => ({ id: c.id, title: c.title, updatedAt: c.updatedAt }))
-    .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
-  res.json({ conversations: summaries });
-});
-
-app.post('/api/conversations', requireClientId, (req, res) => {
-  const allConversations = loadAllConversations();
-  const userConversations = allConversations[req.clientId] || [];
-
-  const newConversation = {
-    id: crypto.randomUUID(),
-    title: 'New chat',
-    messages: [],
-    updatedAt: new Date().toISOString()
-  };
-
-  userConversations.push(newConversation);
-  allConversations[req.clientId] = userConversations;
-  saveAllConversations(allConversations);
-
-  res.json({ id: newConversation.id });
-});
-
-app.get('/api/conversations/:id', requireClientId, (req, res) => {
-  const allConversations = loadAllConversations();
-  const userConversations = allConversations[req.clientId] || [];
-  const conversation = userConversations.find((c) => c.id === req.params.id);
-
-  if (!conversation) {
-    return res.status(404).json({ error: 'Conversation not found' });
+app.get('/api/conversations', requireClientId, async (req, res) => {
+  try {
+    const summaries = await listConversationsForClient(req.clientId);
+    res.json({ conversations: summaries });
+  } catch (error) {
+    console.error('❌ List conversations error:', error.message || error);
+    res.status(500).json({ error: 'Could not load conversations.' });
   }
-
-  // Strip raw image bytes from history responses to keep payloads light —
-  // the frontend only needs a placeholder to display for past image messages.
-  const lightMessages = conversation.messages.map((m) => ({
-    role: m.role,
-    parts: m.parts.map((p) =>
-      p.inline_data ? { text: '[Image]' } : p
-    )
-  }));
-
-  res.json({ messages: lightMessages });
 });
 
-app.delete('/api/conversations/:id', requireClientId, (req, res) => {
-  const allConversations = loadAllConversations();
-  const userConversations = allConversations[req.clientId] || [];
-  allConversations[req.clientId] = userConversations.filter((c) => c.id !== req.params.id);
-  saveAllConversations(allConversations);
-  res.json({ ok: true });
+app.post('/api/conversations', requireClientId, async (req, res) => {
+  try {
+    const id = await createConversationForClient(req.clientId);
+    res.json({ id });
+  } catch (error) {
+    console.error('❌ Create conversation error:', error.message || error);
+    res.status(500).json({ error: 'Could not create conversation.' });
+  }
+});
+
+app.get('/api/conversations/:id', requireClientId, async (req, res) => {
+  try {
+    const conversation = await getConversationForClient(req.clientId, req.params.id);
+    if (!conversation) {
+      return res.status(404).json({ error: 'Conversation not found' });
+    }
+
+    const lightMessages = (conversation.messages || []).map((m) => ({
+      role: m.role,
+      parts: m.parts.map((p) => (p.inline_data ? { text: '[Image]' } : p))
+    }));
+
+    res.json({ messages: lightMessages });
+  } catch (error) {
+    console.error('❌ Get conversation error:', error.message || error);
+    res.status(500).json({ error: 'Could not load conversation.' });
+  }
+});
+
+app.patch('/api/conversations/:id', requireClientId, async (req, res) => {
+  try {
+    const { title } = req.body;
+    if (!title || typeof title !== 'string' || !title.trim()) {
+      return res.status(400).json({ error: 'A non-empty title is required' });
+    }
+
+    const conversation = await getConversationForClient(req.clientId, req.params.id);
+    if (!conversation) {
+      return res.status(404).json({ error: 'Conversation not found' });
+    }
+
+    await saveConversation(req.params.id, { title: title.trim().slice(0, 60) });
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('❌ Rename conversation error:', error.message || error);
+    res.status(500).json({ error: 'Could not rename conversation.' });
+  }
+});
+
+app.delete('/api/conversations/:id', requireClientId, async (req, res) => {
+  try {
+    await deleteConversationForClient(req.clientId, req.params.id);
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('❌ Delete conversation error:', error.message || error);
+    res.status(500).json({ error: 'Could not delete conversation.' });
+  }
 });
 
 // =====================================================================
@@ -124,7 +208,7 @@ STRICT RULES:
 4. Stay friendly, clear, and direct in your answers.
 5. Remember what was said earlier in this conversation (the history below) and stay consistent with it — don't treat every message as a brand new conversation.
 6. Never repeat a previous reply word-for-word. Each answer must directly address what the person just wrote, even if their message is short, informal, or uses slang.
-7. Never use markdown formatting (no **bold**, no *italics*, no # headers, no markdown bullet lists with - or *). Write in plain text only. For lists, use plain numbered lines like "1. Item" or simple line breaks — never asterisks or pound signs.
+7. You may use light Markdown formatting when it genuinely helps readability: **bold** for key terms, numbered or bulleted lists for steps or multiple items, and fenced code blocks (\`\`\`) for any code or command. Don't overuse formatting for short conversational replies.
 8. If the person sends an image or a PDF document, look at it carefully and respond to what they asked about it (summarize, explain, answer questions about it, or describe it helpfully if they didn't ask a specific question).
 9. Respect the person's privacy: never ask for personal information (full name, phone number, address, ID numbers, etc.) unless it's clearly necessary to answer their specific question, and never repeat sensitive personal details back unnecessarily. If asked how their data is handled, explain plainly that conversations are stored only to keep context for that person, are not sold or shared with advertisers, and are used only to generate replies.
 10. When writing in Haitian Creole, use correct standard orthography, including apostrophes for elided pronouns and markers. Common correct forms: "m ap" or "m'ap", "w ap" or "w'ap", "l ap" or "l'ap", "n ap" or "n'ap", "yo ap", "pa gen", "se yon", "genyen". Do not drop apostrophes where they're grammatically expected, and do not insert them where they don't belong (e.g. "li pa" not "li p'a", "ou vle" not "ou v'le"). Prioritize natural, correctly spelled Kreyòl over literal transcription of casual speech.`;
@@ -190,19 +274,17 @@ async function askGemini(contents, attempt = 1) {
 }
 
 const ALLOWED_ATTACHMENT_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/heic', 'image/heif', 'application/pdf'];
-const MAX_ATTACHMENT_BASE64_LENGTH = 14_000_000; // ~10MB raw, enough for most PDFs and phone photos
+const MAX_ATTACHMENT_BASE64_LENGTH = 14_000_000;
 
-// Office/text documents Gemini can't read directly as inline_data — we extract
-// their text content server-side first, then send that text in the prompt.
 const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 const XLS_MIME = 'application/vnd.ms-excel';
 const PLAIN_TEXT_MIMES = ['text/plain', 'text/csv', 'text/markdown', 'application/json', 'text/html', 'text/xml', 'application/rtf'];
 const EXTRACTABLE_DOCUMENT_TYPES = [DOCX_MIME, XLSX_MIME, XLS_MIME, ...PLAIN_TEXT_MIMES];
 
-const MAX_EXTRACTED_TEXT_CHARS = 20000; // keep prompts reasonably sized
+const MAX_EXTRACTED_TEXT_CHARS = 20000;
 
-async function extractDocumentText(mimeType, base64Data, fileName) {
+async function extractDocumentText(mimeType, base64Data) {
   const buffer = Buffer.from(base64Data, 'base64');
 
   if (mimeType === DOCX_MIME) {
@@ -234,15 +316,13 @@ function truncateText(text) {
 }
 
 // =====================================================================
-// FAIR-USE LIMIT — the Gemini API key is shared across every visitor.
-// This caps each anonymous visitor to a reasonable number of messages
-// per day so one person can't exhaust the quota for everyone else.
+// FAIR-USE DAILY LIMIT (in addition to the burst rate limiter above)
 // =====================================================================
 const DAILY_MESSAGE_LIMIT = Number(process.env.DAILY_MESSAGE_LIMIT) || 40;
-const usageByClient = new Map(); // clientId -> { count, dayKey }
+const usageByClient = new Map();
 
 function todayKey() {
-  return new Date().toISOString().slice(0, 10); // "2026-08-06"
+  return new Date().toISOString().slice(0, 10);
 }
 
 function checkAndConsumeQuota(clientId) {
@@ -251,25 +331,23 @@ function checkAndConsumeQuota(clientId) {
 
   if (!entry || entry.dayKey !== key) {
     usageByClient.set(clientId, { count: 1, dayKey: key });
-    return { allowed: true, remaining: DAILY_MESSAGE_LIMIT - 1 };
+    return { allowed: true };
   }
 
   if (entry.count >= DAILY_MESSAGE_LIMIT) {
-    return { allowed: false, remaining: 0 };
+    return { allowed: false };
   }
 
   entry.count += 1;
-  return { allowed: true, remaining: DAILY_MESSAGE_LIMIT - entry.count };
+  return { allowed: true };
 }
 
 // =====================================================================
-// CHAT ROUTE — supports text, and optionally an attached image
+// CHAT ROUTE
 // =====================================================================
 app.post('/api/chat', requireClientId, async (req, res) => {
   try {
     const { conversationId, message, image, document } = req.body;
-    // 'image' = image or PDF, sent as-is to Gemini (inline_data)
-    // 'document' = docx/xlsx/text files, text is extracted server-side first
 
     if (!conversationId) {
       return res.status(400).json({ error: 'conversationId is required' });
@@ -315,7 +393,7 @@ app.post('/api/chat', requireClientId, async (req, res) => {
     let extractionTruncated = false;
     if (hasDocument) {
       try {
-        const raw = await extractDocumentText(document.mimeType, document.data, document.fileName);
+        const raw = await extractDocumentText(document.mimeType, document.data);
         const { text, truncated } = truncateText(raw);
         extractedDocText = text;
         extractionTruncated = truncated;
@@ -325,10 +403,7 @@ app.post('/api/chat', requireClientId, async (req, res) => {
       }
     }
 
-    const allConversations = loadAllConversations();
-    const userConversations = allConversations[req.clientId] || [];
-    const conversation = userConversations.find((c) => c.id === conversationId);
-
+    const conversation = await getConversationForClient(req.clientId, conversationId);
     if (!conversation) {
       return res.status(404).json({ error: 'Conversation not found' });
     }
@@ -353,24 +428,26 @@ app.post('/api/chat', requireClientId, async (req, res) => {
       userParts.push({ text: hasText ? userMessage : defaultPrompt });
     }
 
-    conversation.messages.push({ role: 'user', parts: userParts });
+    const messages = conversation.messages || [];
+    messages.push({ role: 'user', parts: userParts });
 
-    const reply = await askGemini(conversation.messages);
+    const reply = await askGemini(messages);
 
-    conversation.messages.push({ role: 'model', parts: [{ text: reply }] });
+    messages.push({ role: 'model', parts: [{ text: reply }] });
 
-    while (conversation.messages.length > MAX_HISTORY_MESSAGES) {
-      conversation.messages.shift();
+    while (messages.length > MAX_HISTORY_MESSAGES) {
+      messages.shift();
     }
 
-    if (conversation.title === 'New chat') {
-      conversation.title = makeTitle(userMessage);
-    }
-    conversation.updatedAt = new Date().toISOString();
+    const newTitle = conversation.title === 'New chat' ? makeTitle(userMessage) : conversation.title;
 
-    saveAllConversations(allConversations);
+    await saveConversation(conversationId, {
+      messages,
+      title: newTitle,
+      updatedAt: new Date().toISOString()
+    });
 
-    res.json({ reply, title: conversation.title });
+    res.json({ reply, title: newTitle });
     console.log(`✅ Reply sent`);
   } catch (error) {
     console.error('❌ Error:', error.message || error);

@@ -3,9 +3,24 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Neniou AI</title>
-<meta name="description" content="Neniou AI — your multilingual AI assistant.">
+<title>Neniou AI — Asistan vityèl ki pale lang ou</title>
+<meta name="description" content="Neniou AI, yon asistan vityèl ki reponn nan Kreyòl, franse, oswa angle. Poze kesyon, voye dokiman, oswa yon imaj — gratis, san kont.">
 <link rel="icon" href="/assets/icon.svg">
+
+<!-- Open Graph / social preview -->
+<meta property="og:title" content="Neniou AI — Asistan vityèl ki pale lang ou">
+<meta property="og:description" content="Yon asistan AI ki reponn nan Kreyòl, franse, oswa angle. Poze kesyon, voye dokiman, oswa yon imaj — gratis, san kont.">
+<meta property="og:type" content="website">
+<meta property="og:image" content="/assets/icon.svg">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="Neniou AI">
+<meta name="twitter:description" content="Yon asistan AI ki pale Kreyòl, franse, ak angle.">
+
+<!-- Markdown rendering + code syntax highlighting for bot replies -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.5/purify.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -96,19 +111,46 @@
   .conversation-item {
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 9px 12px;
+    gap: 6px;
+    padding: 9px 10px 9px 12px;
     border-radius: 10px;
     font-size: 0.85rem;
     color: var(--text-dim);
     cursor: pointer;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
     transition: background .15s, color .15s;
   }
   .conversation-item:hover { background: var(--bg-elevated); color: var(--text); }
   .conversation-item.active { background: var(--bg-elevated); color: var(--text); }
+
+  .conversation-title {
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .conversation-title[contenteditable="true"] {
+    outline: 1px solid var(--accent-teal);
+    border-radius: 4px;
+    padding: 0 2px;
+    white-space: normal;
+  }
+
+  .conversation-actions { display: none; gap: 2px; flex-shrink: 0; }
+  .conversation-item:hover .conversation-actions,
+  .conversation-item.active .conversation-actions { display: flex; }
+
+  .conv-action-btn {
+    width: 22px; height: 22px;
+    border-radius: 6px;
+    border: none;
+    background: transparent;
+    color: var(--text-dim);
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .conv-action-btn:hover { background: var(--bg-hover); color: var(--text); }
+  .conv-action-btn svg { width: 13px; height: 13px; }
 
   .sidebar-empty { color: var(--text-dim); font-size: 0.78rem; padding: 12px; text-align: center; }
 
@@ -162,7 +204,26 @@
 
   .bubble { max-width: 74%; padding: 12px 16px; border-radius: 18px; font-size: 0.96rem; line-height: 1.6; white-space: pre-wrap; }
   .msg-row.user .bubble { background: var(--bg-elevated); border: 1px solid var(--border); border-bottom-right-radius: 4px; }
-  .msg-row.bot .bubble { background: transparent; padding: 6px 0; color: var(--text); }
+  .msg-row.bot .bubble { background: transparent; padding: 6px 0; color: var(--text); white-space: normal; }
+
+  .bubble.bot-content p { margin: 0 0 10px; }
+  .bubble.bot-content p:last-child { margin-bottom: 0; }
+  .bubble.bot-content ul, .bubble.bot-content ol { margin: 0 0 10px; padding-left: 22px; }
+  .bubble.bot-content li { margin-bottom: 4px; }
+  .bubble.bot-content strong { color: #ffffff; }
+  .bubble.bot-content a { color: var(--accent-teal); }
+  .bubble.bot-content code { background: var(--bg-elevated); padding: 2px 6px; border-radius: 5px; font-size: 0.88em; }
+
+  .code-block-wrap { position: relative; margin: 10px 0; }
+  .code-block-wrap pre { margin: 0; border-radius: 10px; border: 1px solid var(--border); }
+  .code-block-wrap pre code { background: transparent; padding: 14px !important; display: block; overflow-x: auto; font-size: 0.85em; }
+  .copy-code-btn {
+    position: absolute; top: 8px; right: 8px;
+    background: rgba(255,255,255,0.08); border: 1px solid var(--border);
+    color: var(--text-dim); font-size: 0.72rem; padding: 4px 9px; border-radius: 6px;
+    cursor: pointer; font-family: inherit;
+  }
+  .copy-code-btn:hover { color: var(--text); background: rgba(255,255,255,0.14); }
 
   .bubble-image {
     max-width: 260px;
@@ -483,6 +544,37 @@
     updateSendButtonState();
   }
 
+  function renderMarkdownSafely(text) {
+    const rawHtml = marked.parse(text, { breaks: true });
+    return DOMPurify.sanitize(rawHtml);
+  }
+
+  function enhanceCodeBlocks(container) {
+    container.querySelectorAll('pre code').forEach((block) => {
+      if (window.hljs) hljs.highlightElement(block);
+
+      const pre = block.parentElement;
+      if (pre.parentElement.classList.contains('code-block-wrap')) return;
+
+      const wrap = document.createElement('div');
+      wrap.className = 'code-block-wrap';
+      pre.parentNode.insertBefore(wrap, pre);
+      wrap.appendChild(pre);
+
+      const copyBtn = document.createElement('button');
+      copyBtn.className = 'copy-code-btn';
+      copyBtn.type = 'button';
+      copyBtn.textContent = 'Copier';
+      copyBtn.onclick = () => {
+        navigator.clipboard.writeText(block.textContent).then(() => {
+          copyBtn.textContent = 'Copié !';
+          setTimeout(() => { copyBtn.textContent = 'Copier'; }, 1500);
+        });
+      };
+      wrap.appendChild(copyBtn);
+    });
+  }
+
   function addMessage(text, role, imageUrl, fileName) {
     const row = document.createElement('div');
     row.className = 'msg-row ' + role;
@@ -510,9 +602,17 @@
     }
 
     if (text) {
-      const textNode = document.createElement('div');
-      textNode.textContent = text;
-      bubble.appendChild(textNode);
+      if (role === 'bot') {
+        bubble.classList.add('bot-content');
+        const contentDiv = document.createElement('div');
+        contentDiv.innerHTML = renderMarkdownSafely(text);
+        bubble.appendChild(contentDiv);
+        enhanceCodeBlocks(contentDiv);
+      } else {
+        const textNode = document.createElement('div');
+        textNode.textContent = text;
+        bubble.appendChild(textNode);
+      }
     }
 
     row.appendChild(bubble);
@@ -567,11 +667,86 @@
     for (const conv of conversations) {
       const item = document.createElement('div');
       item.className = 'conversation-item' + (conv.id === currentConversationId ? ' active' : '');
-      item.textContent = conv.title || 'New chat';
-      item.title = conv.title || 'New chat';
       item.onclick = () => openConversation(conv.id);
+
+      const titleSpan = document.createElement('span');
+      titleSpan.className = 'conversation-title';
+      titleSpan.textContent = conv.title || 'New chat';
+      titleSpan.title = conv.title || 'New chat';
+      item.appendChild(titleSpan);
+
+      const actions = document.createElement('div');
+      actions.className = 'conversation-actions';
+
+      const renameBtn = document.createElement('button');
+      renameBtn.className = 'conv-action-btn';
+      renameBtn.title = 'Renommer';
+      renameBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>';
+      renameBtn.onclick = (e) => {
+        e.stopPropagation();
+        startRenaming(titleSpan, conv.id, conv.title || 'New chat');
+      };
+      actions.appendChild(renameBtn);
+
+      const deleteBtn = document.createElement('button');
+      deleteBtn.className = 'conv-action-btn';
+      deleteBtn.title = 'Supprimer';
+      deleteBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14z"/></svg>';
+      deleteBtn.onclick = (e) => {
+        e.stopPropagation();
+        deleteConversation(conv.id);
+      };
+      actions.appendChild(deleteBtn);
+
+      item.appendChild(actions);
       conversationListEl.appendChild(item);
     }
+  }
+
+  function startRenaming(titleSpan, conversationId, currentTitle) {
+    titleSpan.contentEditable = 'true';
+    titleSpan.focus();
+
+    const range = document.createRange();
+    range.selectNodeContents(titleSpan);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+
+    async function commit() {
+      titleSpan.contentEditable = 'false';
+      const newTitle = titleSpan.textContent.trim() || currentTitle;
+      titleSpan.textContent = newTitle;
+      if (newTitle !== currentTitle) {
+        try {
+          await apiFetch('/api/conversations/' + conversationId, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ title: newTitle })
+          });
+        } catch (err) {
+          console.error('Rename failed', err);
+        }
+      }
+    }
+
+    titleSpan.onblur = commit;
+    titleSpan.onkeydown = (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); titleSpan.blur(); }
+      if (e.key === 'Escape') { titleSpan.textContent = currentTitle; titleSpan.blur(); }
+    };
+  }
+
+  async function deleteConversation(conversationId) {
+    if (!confirm('Supprimer cette conversation ?')) return;
+
+    await apiFetch('/api/conversations/' + conversationId, { method: 'DELETE' });
+
+    if (conversationId === currentConversationId) {
+      currentConversationId = null;
+      resetThreadView();
+    }
+    await refreshSidebar();
   }
 
   async function refreshSidebar() {
