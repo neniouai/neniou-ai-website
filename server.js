@@ -98,12 +98,22 @@ function makeTitle(firstMessage) {
   return clean.length > 40 ? clean.slice(0, 40) + '…' : clean;
 }
 
-function requireClientId(req, res, next) {
-  const clientId = req.headers['x-client-id'];
-  if (!clientId || typeof clientId !== 'string' || clientId.length > 200) {
-    return res.status(400).json({ error: 'Missing client id' });
+async function requireClientId(req, res, next) {
+  const authHeader = req.headers.authorization || '';
+  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+
+  if (!token) {
+    return res.status(401).json({ error: 'Not authenticated' });
   }
-  req.clientId = clientId;
+
+  try {
+    const decoded = await admin.auth().verifyIdToken(token);
+    req.clientId = decoded.uid; // the Firebase Auth UID uniquely and durably identifies this Google account
+  } catch (error) {
+    console.error('❌ Token verification failed:', error.message || error);
+    return res.status(401).json({ error: 'Invalid or expired session, please sign in again.' });
+  }
+
   next();
 }
 
