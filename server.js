@@ -48,15 +48,19 @@ const db = admin.firestore();
 const conversationsCollection = db.collection('conversations');
 
 async function listConversationsForClient(clientId) {
+  // Sorting in JS instead of using .orderBy() avoids needing a Firestore
+  // composite index (where + orderBy on different fields requires one).
   const snapshot = await conversationsCollection
     .where('clientId', '==', clientId)
-    .orderBy('updatedAt', 'desc')
     .get();
 
-  return snapshot.docs.map((doc) => {
+  const results = snapshot.docs.map((doc) => {
     const data = doc.data();
     return { id: doc.id, title: data.title, updatedAt: data.updatedAt };
   });
+
+  results.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+  return results;
 }
 
 async function createConversationForClient(clientId) {
