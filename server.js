@@ -287,6 +287,65 @@ async function askGemini(contents, attempt = 1) {
   return reply.trim();
 }
 
+// Streams text chunks from Gemini as they're generated, using Gemini's
+// own Server-Sent Events output (alt=sse). Yields plain text pieces.
+async function* streamGeminiChunks(contents, attempt = 1) {
+  await waitForTurn();
+
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:streamGenerateContent?alt=sse&key=${GEMINI_API_KEY}`;
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
+      contents
+    })
+  });
+
+  if (!response.ok || !response.body) {
+    const errText = await response.text().catch(() => '');
+    const isRateLimit = response.status === 429;
+    if (isRateLimit && attempt <= 2) {
+      const waitMs = 15000 * attempt;
+      console.log(`⏳ Rate limit hit (stream), waiting ${waitMs / 1000}s then retrying (${attempt}/2)...`);
+      await sleep(waitMs);
+      yield* streamGeminiChunks(contents, attempt + 1);
+      return;
+    }
+    throw new Error(`Gemini stream error (${response.status}): ${errText.slice(0, 200)}`);
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop(); // keep any incomplete trailing line for next chunk
+
+    for (const line of lines) {
+      if (!line.startsWith('data: ')) continue;
+      const jsonStr = line.slice(6).trim();
+      if (!jsonStr) continue;
+
+      let parsed;
+      try {
+        parsed = JSON.parse(jsonStr);
+      } catch {
+        continue;
+      }
+
+      const piece = parsed?.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (piece) yield piece;
+    }
+  }
+}
+
 const ALLOWED_ATTACHMENT_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/heic', 'image/heif', 'application/pdf'];
 const MAX_ATTACHMENT_BASE64_LENGTH = 14_000_000;
 
@@ -367,6 +426,17 @@ function checkAndConsumeQuota(clientId) {
 const GUEST_MESSAGE_LIMIT = Number(process.env.GUEST_MESSAGE_LIMIT) || 3;
 const guestSessions = new Map(); // guestId -> { messages: [...], count }
 
+app.post('/api/guest-chat/reset', (req, res) => {
+  const guestId = req.headers['x-guest-id'];
+  if (!guestId) return res.status(400).json({ error: 'Missing guest id' });
+
+  const session = guestSessions.get(guestId);
+  if (session) {
+    session.messages = []; // fresh context, but session.count (quota used) is untouched
+  }
+  res.json({ ok: true });
+});
+
 app.post('/api/guest-chat', async (req, res) => {
   try {
     const guestId = req.headers['x-guest-id'];
@@ -430,15 +500,39 @@ app.post('/api/guest-chat', async (req, res) => {
 
     session.messages.push({ role: 'user', parts: userParts });
 
-    const reply = await askGemini(session.messages);
+    res.set({
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive'
+    });
+    res.flushHeaders?.();
 
-    session.messages.push({ role: 'model', parts: [{ text: reply }] });
+    let fullReply = '';
+    try {
+      for await (const chunk of streamGeminiChunks(session.messages)) {
+        fullReply += chunk;
+        res.write(`data: ${JSON.stringify({ text: chunk })}\n\n`);
+      }
+    } catch (streamErr) {
+      console.error('❌ Guest stream error:', streamErr.message || streamErr);
+      res.write(`data: ${JSON.stringify({ error: 'Erreur pendant la génération de la réponse.' })}\n\n`);
+      res.end();
+      return;
+    }
+
+    session.messages.push({ role: 'model', parts: [{ text: fullReply.trim() }] });
     session.count += 1;
 
-    res.json({ reply, remaining: GUEST_MESSAGE_LIMIT - session.count });
+    res.write(`data: ${JSON.stringify({ done: true, remaining: GUEST_MESSAGE_LIMIT - session.count })}\n\n`);
+    res.end();
   } catch (error) {
     console.error('❌ Guest chat error:', error.message || error);
-    res.status(500).json({ error: 'Something went wrong, please try again.' });
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Something went wrong, please try again.' });
+    } else {
+      res.write(`data: ${JSON.stringify({ error: 'Something went wrong, please try again.' })}\n\n`);
+      res.end();
+    }
   }
 });
 
@@ -528,9 +622,28 @@ app.post('/api/chat', requireClientId, async (req, res) => {
     const messages = conversation.messages || [];
     messages.push({ role: 'user', parts: userParts });
 
-    const reply = await askGemini(messages);
+    // ---- Stream the reply back as Server-Sent Events ----
+    res.set({
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive'
+    });
+    res.flushHeaders?.();
 
-    messages.push({ role: 'model', parts: [{ text: reply }] });
+    let fullReply = '';
+    try {
+      for await (const chunk of streamGeminiChunks(messages)) {
+        fullReply += chunk;
+        res.write(`data: ${JSON.stringify({ text: chunk })}\n\n`);
+      }
+    } catch (streamErr) {
+      console.error('❌ Stream error:', streamErr.message || streamErr);
+      res.write(`data: ${JSON.stringify({ error: 'Erreur pendant la génération de la réponse.' })}\n\n`);
+      res.end();
+      return;
+    }
+
+    messages.push({ role: 'model', parts: [{ text: fullReply.trim() }] });
 
     while (messages.length > MAX_HISTORY_MESSAGES) {
       messages.shift();
@@ -544,11 +657,17 @@ app.post('/api/chat', requireClientId, async (req, res) => {
       updatedAt: new Date().toISOString()
     });
 
-    res.json({ reply, title: newTitle });
-    console.log(`✅ Reply sent`);
+    res.write(`data: ${JSON.stringify({ done: true, title: newTitle })}\n\n`);
+    res.end();
+    console.log(`✅ Reply streamed`);
   } catch (error) {
     console.error('❌ Error:', error.message || error);
-    res.status(500).json({ error: 'Something went wrong, please try again.' });
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Something went wrong, please try again.' });
+    } else {
+      res.write(`data: ${JSON.stringify({ error: 'Something went wrong, please try again.' })}\n\n`);
+      res.end();
+    }
   }
 });
 
