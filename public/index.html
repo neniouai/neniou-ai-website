@@ -6,6 +6,11 @@
 <title>Neniou AI — Assistant virtuel qui parle votre langue</title>
 <meta name="description" content="Neniou AI, un assistant virtuel qui répond en créole, français ou anglais. Posez une question, envoyez un document ou une image — gratuit, sans compte.">
 <link rel="icon" href="/assets/icon.svg">
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#0e0f11">
+<link rel="apple-touch-icon" href="/assets/icon.svg">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 
 <!-- Open Graph / social preview -->
 <meta property="og:title" content="Neniou AI — Assistant virtuel qui parle votre langue">
@@ -173,6 +178,11 @@
   .auth-modal-submit:disabled { opacity: 0.6; cursor: default; }
 
   .auth-modal-switch { text-align: center; margin-top: 16px; font-size: 0.85rem; color: var(--text-dim); }
+  .auth-forgot-password {
+    text-align: right; font-size: 0.8rem; color: var(--accent-teal);
+    cursor: pointer; margin: -6px 0 12px;
+  }
+  .auth-forgot-password:hover { text-decoration: underline; }
   .auth-modal-switch a { color: var(--accent-teal); text-decoration: none; cursor: pointer; }
 
   .auth-modal-divider { display: flex; align-items: center; gap: 12px; margin: 20px 0; color: var(--text-dim); font-size: 0.8rem; }
@@ -239,6 +249,9 @@
   }
   .account-menu-item:hover { background: var(--bg-hover); }
   .account-menu-item svg { width: 16px; height: 16px; flex-shrink: 0; color: var(--text-dim); }
+  .account-menu-item-danger { color: var(--error); }
+  .account-menu-item-danger svg { color: var(--error); }
+  .account-menu-item-danger:hover { background: rgba(242, 139, 130, 0.12); }
 
   .account-menu-divider { height: 1px; background: var(--border); margin: 6px 0; }
 
@@ -342,6 +355,22 @@
   .new-chat-btn:hover { background: var(--bg-hover); }
   .new-chat-btn svg { width: 16px; height: 16px; flex-shrink: 0; }
 
+  .sidebar-search {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 10px;
+    margin: 10px 0 6px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    color: var(--text-dim);
+  }
+  .sidebar-search svg { width: 14px; height: 14px; flex-shrink: 0; }
+  .sidebar-search input {
+    flex: 1; background: transparent; border: none; outline: none;
+    color: var(--text); font-size: 0.82rem; font-family: inherit;
+  }
+  .sidebar-search input::placeholder { color: var(--text-dim); }
+
   .conversation-list {
     flex: 1;
     overflow-y: auto;
@@ -430,6 +459,23 @@
     background-clip: text;
     color: transparent;
   }
+
+  .suggested-prompts {
+    display: flex; flex-wrap: wrap; justify-content: center; gap: 10px;
+    max-width: 640px;
+  }
+  .suggested-prompt {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    padding: 10px 16px;
+    border-radius: 100px;
+    font-size: 0.85rem;
+    font-family: inherit;
+    cursor: pointer;
+    transition: background .15s, color .15s;
+  }
+  .suggested-prompt:hover { background: var(--bg-hover); color: var(--text); }
 
   .thread-wrap { flex: 1; overflow-y: auto; display: flex; justify-content: center; }
   .thread-wrap.hidden { display: none; }
@@ -635,6 +681,7 @@
       <div class="auth-field">
         <input id="auth-password" type="password" placeholder="Mot de passe" autocomplete="current-password" required />
       </div>
+      <div class="auth-forgot-password" id="auth-forgot-password">Mot de passe oublié ?</div>
       <div class="auth-modal-error" id="auth-modal-error"></div>
       <button class="auth-modal-submit" id="auth-email-submit" type="submit">Se connecter</button>
     </form>
@@ -696,6 +743,11 @@
       Nouvelle conversation
     </button>
 
+    <div class="sidebar-search">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+      <input type="text" id="conversation-search" placeholder="Rechercher..." autocomplete="off">
+    </div>
+
     <div class="conversation-list" id="conversation-list">
       <div class="sidebar-empty">Aucune conversation pour l'instant</div>
     </div>
@@ -715,6 +767,11 @@
         <button class="account-menu-item" id="menu-help" type="button">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3M12 17h.01"/></svg>
           Aide
+        </button>
+        <div class="account-menu-divider"></div>
+        <button class="account-menu-item account-menu-item-danger" id="menu-delete-account" type="button">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14z"/></svg>
+          Supprimer le compte
         </button>
         <div class="account-menu-divider"></div>
         <button class="account-menu-item" id="menu-logout" type="button">
@@ -749,6 +806,12 @@
 
     <div class="stage" id="stage">
       <div class="greeting">Bonjour, que puis-je faire pour vous aujourd'hui ?</div>
+      <div class="suggested-prompts" id="suggested-prompts">
+        <button class="suggested-prompt" type="button">Explique-moi un sujet simplement</button>
+        <button class="suggested-prompt" type="button">Aide-moi à rédiger un message</button>
+        <button class="suggested-prompt" type="button">Résume un texte que je vais coller</button>
+        <button class="suggested-prompt" type="button">Donne-moi des idées créatives</button>
+      </div>
     </div>
 
     <div class="thread-wrap hidden" id="thread-wrap">
@@ -1223,6 +1286,16 @@
       const actions = document.createElement('div');
       actions.className = 'conversation-actions';
 
+      const exportBtn = document.createElement('button');
+      exportBtn.className = 'conv-action-btn';
+      exportBtn.title = 'Exporter';
+      exportBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>';
+      exportBtn.onclick = (e) => {
+        e.stopPropagation();
+        exportConversation(conv.id, conv.title || 'conversation');
+      };
+      actions.appendChild(exportBtn);
+
       const renameBtn = document.createElement('button');
       renameBtn.className = 'conv-action-btn';
       renameBtn.title = 'Renommer';
@@ -1245,6 +1318,33 @@
 
       item.appendChild(actions);
       conversationListEl.appendChild(item);
+    }
+  }
+
+  async function exportConversation(conversationId, title) {
+    try {
+      const response = await apiFetch('/api/conversations/' + conversationId);
+      if (!response.ok) return;
+      const data = await response.json();
+
+      const lines = [`Neniou AI — ${title}`, `Exporté le ${new Date().toLocaleString('fr-FR')}`, ''];
+      for (const entry of data.messages || []) {
+        const speaker = entry.role === 'user' ? 'Vous' : 'Neniou AI';
+        const text = entry.parts?.[0]?.text || '';
+        lines.push(`${speaker} :`, text, '');
+      }
+
+      const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = title.replace(/[^\w\s-]/g, '').trim().slice(0, 50) + '.txt';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Export failed', err);
     }
   }
 
@@ -1294,15 +1394,36 @@
     await refreshSidebar();
   }
 
+  let cachedConversations = [];
+
   async function refreshSidebar() {
     if (!isSignedIn) {
       conversationListEl.innerHTML = '<div class="sidebar-empty">Connectez-vous pour garder l\'historique de vos conversations</div>';
+      cachedConversations = [];
       return [];
     }
     const conversations = await loadConversationList();
-    renderConversationList(conversations);
+    cachedConversations = conversations;
+    applyConversationSearch();
     return conversations;
   }
+
+  function applyConversationSearch() {
+    const query = document.getElementById('conversation-search').value.trim().toLowerCase();
+    if (!query) {
+      renderConversationList(cachedConversations);
+      return;
+    }
+    const filtered = cachedConversations.filter((c) => (c.title || '').toLowerCase().includes(query));
+    if (filtered.length === 0) {
+      conversationListEl.innerHTML = '<div class="sidebar-empty">Aucun résultat</div>';
+    } else {
+      renderConversationList(filtered);
+    }
+  }
+
+  document.getElementById('conversation-search').addEventListener('input', applyConversationSearch);
+
 
   async function openConversation(id) {
     currentConversationId = id;
@@ -1445,6 +1566,15 @@
     await streamAndDisplay(endpoint, doFetch, body, { existingRow: botRow });
   }
 
+  document.querySelectorAll('.suggested-prompt').forEach((chip) => {
+    chip.addEventListener('click', () => {
+      input.value = chip.textContent;
+      autoResizeInput();
+      updateSendButtonState();
+      form.requestSubmit();
+    });
+  });
+
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
     const message = input.value.trim();
@@ -1510,6 +1640,15 @@
   }
   window.resetToGuestView = resetToGuestView;
 
+  // ===================== PWA INSTALL SUPPORT =====================
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/service-worker.js').catch((err) => {
+        console.error('Service worker registration failed:', err);
+      });
+    });
+  }
+
   // ===================== ACCOUNT MENU (sidebar bottom) =====================
   const accountTrigger = document.getElementById('account-trigger');
   const accountMenu = document.getElementById('account-menu');
@@ -1558,6 +1697,32 @@
   document.getElementById('menu-logout').addEventListener('click', () => {
     accountMenu.classList.add('hidden');
     window.NeniouAuth?.signOutUser();
+  });
+
+  document.getElementById('menu-delete-account').addEventListener('click', async () => {
+    accountMenu.classList.add('hidden');
+
+    const firstConfirm = confirm(
+      'Supprimer votre compte effacera définitivement toutes vos conversations. Cette action est irréversible. Continuer ?'
+    );
+    if (!firstConfirm) return;
+
+    const secondConfirm = confirm('Êtes-vous vraiment sûr(e) ? Il n\'y a pas de retour en arrière possible.');
+    if (!secondConfirm) return;
+
+    try {
+      await apiFetch('/api/account/data', { method: 'DELETE' });
+      await window.NeniouAuth.deleteAccount();
+      // Sign-out state change (and the UI reset that comes with it) happens
+      // automatically once the account is gone.
+    } catch (err) {
+      if (err && err.code === 'auth/requires-recent-login') {
+        alert('Pour des raisons de sécurité, veuillez vous déconnecter puis vous reconnecter avant de supprimer votre compte.');
+      } else {
+        alert("Une erreur est survenue lors de la suppression du compte. Réessayez.");
+        console.error(err);
+      }
+    }
   });
 
   // ---- Theme ----
@@ -1654,7 +1819,8 @@
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
   import {
     getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signOut, onIdTokenChanged,
-    signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile
+    signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile,
+    sendPasswordResetEmail, deleteUser
   } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 
   const firebaseConfig = {
@@ -1674,7 +1840,8 @@
 
   window.NeniouAuth = {
     getIdToken: async () => (currentUser ? currentUser.getIdToken() : null),
-    signOutUser: () => signOut(auth)
+    signOutUser: () => signOut(auth),
+    deleteAccount: () => deleteUser(currentUser)
   };
 
   const topbarSignInBtn = document.getElementById('topbar-signin-btn');
@@ -1693,6 +1860,7 @@
   const modalForm = document.getElementById('auth-email-form');
   const modalEmail = document.getElementById('auth-email');
   const modalPassword = document.getElementById('auth-password');
+  const forgotPasswordLink = document.getElementById('auth-forgot-password');
   const modalError = document.getElementById('auth-modal-error');
   const modalSubmit = document.getElementById('auth-email-submit');
   const modalSwitch = document.getElementById('auth-modal-switch');
@@ -1740,6 +1908,22 @@
   modalClose.addEventListener('click', closeModal);
   modalBackdrop.addEventListener('click', (e) => { if (e.target === modalBackdrop) closeModal(); });
   document.getElementById('auth-switch-link').addEventListener('click', () => setModalMode('register'));
+
+  forgotPasswordLink.addEventListener('click', async () => {
+    const email = modalEmail.value.trim();
+    modalError.style.color = '';
+    if (!email) {
+      modalError.textContent = "Entrez d'abord votre email ci-dessus, puis cliquez à nouveau.";
+      return;
+    }
+    try {
+      await sendPasswordResetEmail(auth, email);
+      modalError.style.color = 'var(--accent-teal)';
+      modalError.textContent = `Email de réinitialisation envoyé à ${email}. Vérifiez votre boîte de réception.`;
+    } catch (err) {
+      modalError.textContent = "Impossible d'envoyer l'email. Vérifiez l'adresse et réessayez.";
+    }
+  });
 
   modalForm.addEventListener('submit', async (event) => {
     event.preventDefault();

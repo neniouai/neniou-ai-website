@@ -1,0 +1,12 @@
+{
+  "name": "Neniou AI",
+  "short_name": "Neniou AI",
+  "description": "Assistant virtuel qui parle créole, français et anglais.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0e0f11",
+  "theme_color": "#0e0f11",
+  "icons": [
+    { "src": "/assets/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

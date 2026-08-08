@@ -210,6 +210,21 @@ app.delete('/api/conversations/:id', requireClientId, async (req, res) => {
   }
 });
 
+// Wipes every conversation belonging to this account — called right before
+// the Firebase Auth account itself is deleted, so no orphaned data is left.
+app.delete('/api/account/data', requireClientId, async (req, res) => {
+  try {
+    const snapshot = await conversationsCollection.where('clientId', '==', req.clientId).get();
+    const batch = db.batch();
+    snapshot.docs.forEach((doc) => batch.delete(doc.ref));
+    await batch.commit();
+    res.json({ ok: true, deleted: snapshot.size });
+  } catch (error) {
+    console.error('❌ Delete account data error:', error.message || error);
+    res.status(500).json({ error: 'Could not delete account data.' });
+  }
+});
+
 // =====================================================================
 // GEMINI CHAT LOGIC
 // =====================================================================
