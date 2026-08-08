@@ -307,13 +307,15 @@
     transition: width .2s ease, padding .2s ease, opacity .15s ease;
     overflow: hidden;
   }
-  .sidebar.collapsed {
-    width: 0;
-    padding-left: 0;
-    padding-right: 0;
-    border-right: none;
-    opacity: 0;
-    pointer-events: none;
+  @media (min-width: 641px) {
+    .sidebar.collapsed {
+      width: 0;
+      padding-left: 0;
+      padding-right: 0;
+      border-right: none;
+      opacity: 0;
+      pointer-events: none;
+    }
   }
 
   .sidebar-top { display: flex; align-items: center; gap: 10px; padding: 4px 6px 18px; }
@@ -508,16 +510,20 @@
     background: var(--bg-input);
     border: 1px solid var(--border);
     border-radius: var(--radius);
-    display: flex; align-items: center; gap: 6px;
+    display: flex; align-items: flex-end; gap: 6px;
     padding: 8px 8px 8px 10px;
-    transition: border-color .15s;
+    transition: border-color .15s, border-radius .15s;
   }
   .input-bar:focus-within { border-color: #4a4d51; }
-  .input-bar input {
+  .input-bar textarea {
     flex: 1; background: transparent; border: none; outline: none;
     color: var(--text); font-size: 0.98rem; font-family: inherit; padding: 10px 6px;
+    resize: none;
+    line-height: 1.4;
+    max-height: 180px;
+    overflow-y: auto;
   }
-  .input-bar input::placeholder { color: var(--text-dim); }
+  .input-bar textarea::placeholder { color: var(--text-dim); }
 
   .attach-btn, .send-btn {
     width: 38px; height: 38px; border-radius: 50%; border: none;
@@ -713,7 +719,7 @@
       <!-- Shown when signed out -->
       <button class="google-btn google-btn-small" id="topbar-signin-btn" type="button">
         <svg viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
-        Se connecter
+        Créer un compte
       </button>
     </div>
 
@@ -730,7 +736,7 @@
       <span>Vous avez atteint la limite de messages gratuits.</span>
       <button class="google-btn google-btn-small" id="banner-signin-btn" type="button">
         <svg viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
-        Continuer avec Google
+        Créer un compte
       </button>
     </div>
 
@@ -746,7 +752,7 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21.44 11.05l-9.19 9.19a5.5 5.5 0 01-7.78-7.78l9.19-9.19a3.5 3.5 0 014.95 4.95l-9.2 9.19a1.5 1.5 0 01-2.12-2.12l8.49-8.48"/></svg>
         </button>
         <input type="file" id="image-input" accept="image/png,image/jpeg,image/webp,image/heic,image/heif,application/pdf,.docx,.xlsx,.xls,.txt,.csv,.md,.json,.html,.xml,.rtf" style="display:none">
-        <input id="chat-input" type="text" placeholder="Écrivez un message pour Neniou AI..." autocomplete="off" />
+        <textarea id="chat-input" rows="1" placeholder="Écrivez un message pour Neniou AI..."></textarea>
         <button class="send-btn" id="send-btn" type="submit" disabled aria-label="Envoyer">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
         </button>
@@ -845,7 +851,23 @@
     sendBtn.disabled = !hasText && !attachedImage;
   }
 
-  input.addEventListener('input', updateSendButtonState);
+  function autoResizeInput() {
+    input.style.height = 'auto';
+    input.style.height = Math.min(input.scrollHeight, 180) + 'px';
+  }
+
+  input.addEventListener('input', () => {
+    updateSendButtonState();
+    autoResizeInput();
+  });
+
+  // Enter sends the message; Shift+Enter inserts a newline instead.
+  input.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault();
+      if (!sendBtn.disabled) form.requestSubmit();
+    }
+  });
 
   attachBtn.addEventListener('click', () => imageInput.click());
 
@@ -1285,6 +1307,7 @@
 
     const fileToSend = attachedImage;
     input.value = '';
+    autoResizeInput();
     removeAttachedImage();
     sendBtn.disabled = true;
 
@@ -1583,7 +1606,7 @@
   }
 
   function openModal() {
-    setModalMode('login');
+    setModalMode('register');
     modalEmail.value = '';
     modalPassword.value = '';
     document.getElementById('auth-name').value = '';
