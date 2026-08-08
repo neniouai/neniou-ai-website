@@ -179,6 +179,100 @@
 
   .auth-modal-card .google-btn { width: 100%; justify-content: center; }
 
+  /* ================= SIDEBAR ACCOUNT FOOTER ================= */
+  .sidebar-footer { position: relative; margin-top: auto; padding-top: 10px; border-top: 1px solid var(--border); }
+
+  .account-trigger {
+    display: flex; align-items: center; gap: 10px;
+    width: 100%;
+    background: transparent; border: none;
+    color: var(--text);
+    padding: 10px 10px;
+    border-radius: 10px;
+    cursor: pointer;
+    font-family: inherit; font-size: 0.85rem;
+    text-align: left;
+  }
+  .account-trigger:hover { background: var(--bg-elevated); }
+
+  .account-avatar {
+    width: 28px; height: 28px; border-radius: 50%;
+    background: linear-gradient(135deg, var(--accent-blue), var(--accent-green));
+    color: #0b0c0d; font-weight: 600; font-size: 0.8rem;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0; overflow: hidden;
+  }
+  .account-avatar img { width: 100%; height: 100%; object-fit: cover; }
+
+  .account-label { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  .account-menu {
+    position: absolute;
+    bottom: calc(100% + 6px); left: 0; right: 0;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 8px;
+    box-shadow: 0 8px 28px rgba(0,0,0,0.45);
+    z-index: 60;
+  }
+  .account-menu.hidden { display: none; }
+
+  .account-menu-email {
+    padding: 8px 10px 10px;
+    font-size: 0.78rem;
+    color: var(--text-dim);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+
+  .account-menu-item {
+    display: flex; align-items: center; gap: 11px;
+    width: 100%;
+    background: transparent; border: none;
+    color: var(--text);
+    padding: 9px 10px;
+    border-radius: 9px;
+    cursor: pointer;
+    font-family: inherit; font-size: 0.85rem;
+    text-align: left;
+  }
+  .account-menu-item:hover { background: var(--bg-hover); }
+  .account-menu-item svg { width: 16px; height: 16px; flex-shrink: 0; color: var(--text-dim); }
+
+  .account-menu-divider { height: 1px; background: var(--border); margin: 6px 0; }
+
+  /* ================= SETTINGS MODAL ================= */
+  .settings-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .settings-row:last-child { border-bottom: none; }
+  .settings-row-label { font-size: 0.9rem; }
+  .settings-row-hint { font-size: 0.76rem; color: var(--text-dim); margin-top: 3px; }
+
+  .settings-select {
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 7px 12px;
+    border-radius: 8px;
+    font-family: inherit; font-size: 0.85rem;
+    cursor: pointer;
+  }
+
+  /* ---- Light theme ---- */
+  body.light-theme {
+    --bg: #ffffff;
+    --bg-elevated: #f1f3f4;
+    --bg-input: #f1f3f4;
+    --bg-hover: #e8eaed;
+    --border: #dadce0;
+    --text: #1f1f1f;
+    --text-dim: #5f6368;
+  }
+  body.light-theme .bubble.bot-content strong { color: #000; }
+
   .guest-limit-banner {
     display: flex;
     align-items: center;
@@ -201,9 +295,6 @@
   .app { display: none; height: 100vh; }
   .app.visible { display: flex; }
 
-  .user-chip { display: flex; align-items: center; gap: 8px; }
-  .user-chip img { width: 26px; height: 26px; border-radius: 50%; }
-  .user-chip-name { font-size: 0.85rem; color: var(--text-dim); }
 
   /* ---- Sidebar with conversation list ---- */
   .sidebar {
@@ -493,6 +584,9 @@
     <h2 class="auth-modal-title" id="auth-modal-title">Connexion</h2>
 
     <form id="auth-email-form">
+      <div class="auth-field hidden" id="auth-name-field">
+        <input id="auth-name" type="text" placeholder="Nom complet" autocomplete="name" />
+      </div>
       <div class="auth-field">
         <input id="auth-email" type="email" placeholder="Email" autocomplete="email" required />
       </div>
@@ -516,6 +610,37 @@
   </div>
 </div>
 
+<!-- ================= SETTINGS MODAL ================= -->
+<div class="auth-modal-backdrop hidden" id="settings-modal-backdrop">
+  <div class="auth-modal-card">
+    <button class="auth-modal-close" id="settings-modal-close" type="button">✕</button>
+    <h2 class="auth-modal-title">Paramètres</h2>
+
+    <div class="settings-row">
+      <div>
+        <div class="settings-row-label">Thème</div>
+        <div class="settings-row-hint">Clair ou sombre</div>
+      </div>
+      <select class="settings-select" id="theme-select">
+        <option value="dark">Sombre</option>
+        <option value="light">Clair</option>
+      </select>
+    </div>
+
+    <div class="settings-row">
+      <div>
+        <div class="settings-row-label">Langue de l'interface</div>
+        <div class="settings-row-hint">Neniou AI répond toujours dans votre langue</div>
+      </div>
+      <select class="settings-select" id="ui-language-select">
+        <option value="fr">Français</option>
+        <option value="ht">Kreyòl</option>
+        <option value="en">English</option>
+      </select>
+    </div>
+  </div>
+</div>
+
 <div class="app visible" id="app">
 
   <aside class="sidebar collapsed" id="sidebar">
@@ -531,6 +656,35 @@
 
     <div class="conversation-list" id="conversation-list">
       <div class="sidebar-empty">Aucune conversation pour l'instant</div>
+    </div>
+
+    <!-- Account menu, pinned to the bottom of the sidebar -->
+    <div class="sidebar-footer">
+      <div class="account-menu hidden" id="account-menu">
+        <div class="account-menu-email" id="account-menu-email"></div>
+        <button class="account-menu-item" id="menu-settings" type="button">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06A1.65 1.65 0 004.6 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06A1.65 1.65 0 009 4.6a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+          Paramètres
+        </button>
+        <button class="account-menu-item" id="menu-language" type="button">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/></svg>
+          Langue
+        </button>
+        <button class="account-menu-item" id="menu-help" type="button">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3M12 17h.01"/></svg>
+          Aide
+        </button>
+        <div class="account-menu-divider"></div>
+        <button class="account-menu-item" id="menu-logout" type="button">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9"/></svg>
+          Déconnexion
+        </button>
+      </div>
+
+      <button class="account-trigger" id="account-trigger" type="button">
+        <div class="account-avatar" id="account-avatar">?</div>
+        <span class="account-label" id="account-label">Se connecter</span>
+      </button>
     </div>
   </aside>
 
@@ -549,13 +703,6 @@
         <svg viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
         Se connecter
       </button>
-
-      <!-- Shown when signed in -->
-      <div class="user-chip hidden" id="user-chip">
-        <img id="user-photo" src="" alt="" style="display:none">
-        <span class="user-chip-name" id="user-name"></span>
-        <button class="logout-btn" id="logout-btn" style="background:none;border:1px solid var(--border);color:var(--text-dim);padding:6px 14px;border-radius:100px;font-size:0.8rem;cursor:pointer;">Déconnexion</button>
-      </div>
     </div>
 
     <div class="stage" id="stage">
@@ -1203,6 +1350,144 @@
     input.focus();
   }
   window.resetToGuestView = resetToGuestView;
+
+  // ===================== ACCOUNT MENU (sidebar bottom) =====================
+  const accountTrigger = document.getElementById('account-trigger');
+  const accountMenu = document.getElementById('account-menu');
+
+  accountTrigger.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (!isSignedIn) {
+      window.openAuthModal?.();
+      return;
+    }
+    accountMenu.classList.toggle('hidden');
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!accountMenu.contains(e.target) && !accountTrigger.contains(e.target)) {
+      accountMenu.classList.add('hidden');
+    }
+  });
+
+  // ===================== SETTINGS MODAL =====================
+  const settingsBackdrop = document.getElementById('settings-modal-backdrop');
+  const settingsClose = document.getElementById('settings-modal-close');
+  const themeSelect = document.getElementById('theme-select');
+  const uiLanguageSelect = document.getElementById('ui-language-select');
+
+  function openSettings() {
+    accountMenu.classList.add('hidden');
+    settingsBackdrop.classList.remove('hidden');
+  }
+  function closeSettings() {
+    settingsBackdrop.classList.add('hidden');
+  }
+
+  document.getElementById('menu-settings').addEventListener('click', openSettings);
+  document.getElementById('menu-language').addEventListener('click', openSettings);
+  settingsClose.addEventListener('click', closeSettings);
+  settingsBackdrop.addEventListener('click', (e) => { if (e.target === settingsBackdrop) closeSettings(); });
+
+  document.getElementById('menu-help').addEventListener('click', () => {
+    accountMenu.classList.add('hidden');
+    resetThreadView();
+    showThreadView();
+    addMessage(UI_STRINGS[currentUiLang].helpText, 'bot');
+  });
+
+  document.getElementById('menu-logout').addEventListener('click', () => {
+    accountMenu.classList.add('hidden');
+    window.NeniouAuth?.signOutUser();
+  });
+
+  // ---- Theme ----
+  function applyTheme(theme) {
+    document.body.classList.toggle('light-theme', theme === 'light');
+    localStorage.setItem('neniou_theme', theme);
+    themeSelect.value = theme;
+  }
+  themeSelect.addEventListener('change', () => applyTheme(themeSelect.value));
+  applyTheme(localStorage.getItem('neniou_theme') || 'dark');
+
+  // ---- UI language ----
+  const UI_STRINGS = {
+    fr: {
+      greeting: "Bonjour, que puis-je faire pour vous aujourd'hui ?",
+      placeholder: "Écrivez un message pour Neniou AI...",
+      newConversation: "Nouvelle conversation",
+      noConversations: "Aucune conversation pour le moment",
+      signInPrompt: "Connectez-vous pour garder l'historique de vos conversations",
+      signIn: "Se connecter",
+      settings: "Paramètres",
+      language: "Langue",
+      help: "Aide",
+      logout: "Déconnexion",
+      disclaimer: "Neniou AI peut faire des erreurs. Vérifiez les informations importantes.",
+      guestLimit: "Vous avez atteint la limite de messages gratuits.",
+      helpText: "Neniou AI répond à vos questions, lit vos documents (PDF, Word, Excel, texte) et comprend vos images. Écrivez dans la langue de votre choix — Neniou AI répond dans cette même langue. Connectez-vous pour garder l'historique de vos conversations sur tous vos appareils."
+    },
+    ht: {
+      greeting: "Bonjou, kisa m ka fè pou ou jodi a ?",
+      placeholder: "Ekri yon mesaj pou Neniou AI...",
+      newConversation: "Nouvo konvèsasyon",
+      noConversations: "Pa gen konvèsasyon pou kounye a",
+      signInPrompt: "Konekte pou kenbe istwa konvèsasyon ou yo",
+      signIn: "Konekte",
+      settings: "Paramèt",
+      language: "Lang",
+      help: "Èd",
+      logout: "Dekonekte",
+      disclaimer: "Neniou AI ka fè erè. Verifye enfòmasyon enpòtan yo.",
+      guestLimit: "Ou rive nan limit mesaj gratis yo.",
+      helpText: "Neniou AI reponn kesyon ou yo, li dokiman ou yo (PDF, Word, Excel, tèks) epi li konprann imaj ou yo. Ekri nan lang ou vle a — Neniou AI ap reponn nan menm lang lan. Konekte pou kenbe istwa konvèsasyon ou yo sou tout aparèy ou."
+    },
+    en: {
+      greeting: "Hello, what can I do for you today?",
+      placeholder: "Write a message to Neniou AI...",
+      newConversation: "New conversation",
+      noConversations: "No conversations yet",
+      signInPrompt: "Sign in to keep your conversation history",
+      signIn: "Sign in",
+      settings: "Settings",
+      language: "Language",
+      help: "Help",
+      logout: "Sign out",
+      disclaimer: "Neniou AI can make mistakes. Verify important information.",
+      guestLimit: "You've reached the free message limit.",
+      helpText: "Neniou AI answers your questions, reads your documents (PDF, Word, Excel, text) and understands your images. Write in any language — Neniou AI replies in that same language. Sign in to keep your conversation history across all your devices."
+    }
+  };
+
+  let currentUiLang = localStorage.getItem('neniou_ui_lang') || 'fr';
+
+  function applyUiLanguage(lang) {
+    currentUiLang = lang;
+    localStorage.setItem('neniou_ui_lang', lang);
+    uiLanguageSelect.value = lang;
+    const t = UI_STRINGS[lang];
+
+    document.querySelector('.greeting').textContent = t.greeting;
+    input.placeholder = t.placeholder;
+    document.querySelector('.new-chat-btn').lastChild.textContent = ' ' + t.newConversation;
+    document.querySelector('.disclaimer').textContent = t.disclaimer;
+    document.getElementById('menu-settings').lastChild.textContent = ' ' + t.settings;
+    document.getElementById('menu-language').lastChild.textContent = ' ' + t.language;
+    document.getElementById('menu-help').lastChild.textContent = ' ' + t.help;
+    document.getElementById('menu-logout').lastChild.textContent = ' ' + t.logout;
+    document.querySelector('#guest-limit-banner span').textContent = t.guestLimit;
+    document.getElementById('topbar-signin-btn').lastChild.textContent = ' ' + t.signIn;
+
+    if (!isSignedIn) {
+      document.getElementById('account-label').textContent = t.signIn;
+      conversationListEl.innerHTML = '<div class="sidebar-empty">' + t.signInPrompt + '</div>';
+    }
+  }
+
+  uiLanguageSelect.addEventListener('change', () => applyUiLanguage(uiLanguageSelect.value));
+  applyUiLanguage(currentUiLang);
+  window.applyUiLanguage = applyUiLanguage;
+  window.getUiStrings = () => UI_STRINGS[currentUiLang];
 </script>
 
 <!-- ================= FIREBASE AUTH (Google + Email/Password) ================= -->
@@ -1210,7 +1495,7 @@
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
   import {
     getAuth, GoogleAuthProvider, signInWithRedirect, getRedirectResult, signOut, onIdTokenChanged,
-    signInWithEmailAndPassword, createUserWithEmailAndPassword
+    signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile
   } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 
   const firebaseConfig = {
@@ -1236,10 +1521,9 @@
   const topbarSignInBtn = document.getElementById('topbar-signin-btn');
   const bannerSignInBtn = document.getElementById('banner-signin-btn');
   const guestBanner = document.getElementById('guest-limit-banner');
-  const userChip = document.getElementById('user-chip');
-  const logoutBtn = document.getElementById('logout-btn');
-  const userNameEl = document.getElementById('user-name');
-  const userPhotoEl = document.getElementById('user-photo');
+  const accountLabelEl = document.getElementById('account-label');
+  const accountAvatarEl = document.getElementById('account-avatar');
+  const accountMenuEmailEl = document.getElementById('account-menu-email');
   const sidebarEl = document.getElementById('sidebar');
   const chatInputEl = document.getElementById('chat-input');
 
@@ -1261,14 +1545,18 @@
   function setModalMode(mode) {
     modalMode = mode;
     modalError.textContent = '';
+    const nameField = document.getElementById('auth-name-field');
+
     if (mode === 'login') {
       modalTitle.textContent = 'Connexion';
       modalSubmit.textContent = 'Se connecter';
       modalSwitch.innerHTML = 'Pas de compte ? <a id="auth-switch-link">Créer un compte</a>';
+      nameField.classList.add('hidden');
     } else {
       modalTitle.textContent = 'Créer un compte';
       modalSubmit.textContent = 'Créer un compte';
       modalSwitch.innerHTML = 'Vous avez déjà un compte ? <a id="auth-switch-link">Se connecter</a>';
+      nameField.classList.remove('hidden');
     }
     document.getElementById('auth-switch-link').addEventListener('click', () => {
       setModalMode(modalMode === 'login' ? 'register' : 'login');
@@ -1279,12 +1567,14 @@
     setModalMode('login');
     modalEmail.value = '';
     modalPassword.value = '';
+    document.getElementById('auth-name').value = '';
     modalBackdrop.classList.remove('hidden');
     modalEmail.focus();
   }
   function closeModal() {
     modalBackdrop.classList.add('hidden');
   }
+  window.openAuthModal = openModal;
 
   topbarSignInBtn.addEventListener('click', openModal);
   bannerSignInBtn.addEventListener('click', openModal);
@@ -1301,7 +1591,12 @@
       if (modalMode === 'login') {
         await signInWithEmailAndPassword(auth, modalEmail.value.trim(), modalPassword.value);
       } else {
-        await createUserWithEmailAndPassword(auth, modalEmail.value.trim(), modalPassword.value);
+        const cred = await createUserWithEmailAndPassword(auth, modalEmail.value.trim(), modalPassword.value);
+        const fullName = document.getElementById('auth-name').value.trim();
+        if (fullName) {
+          await updateProfile(cred.user, { displayName: fullName });
+          updateAccountUI(cred.user); // don't wait for a token-refresh event — reflect the name now
+        }
       }
       closeModal();
       // onIdTokenChanged below handles switching to the signed-in view
@@ -1335,12 +1630,36 @@
   }
   modalGoogleBtn.addEventListener('click', startGoogleSignIn);
 
-  logoutBtn.addEventListener('click', () => window.NeniouAuth.signOutUser());
+  // Logout is wired to #menu-logout in the main app script (bottom account menu)
 
   // Completes the sign-in after Google redirects back to this page
   getRedirectResult(auth).catch((err) => {
     console.error('Redirect sign-in failed:', err);
   });
+
+  // Single source of truth for reflecting the signed-in identity in the UI —
+  // called from onIdTokenChanged AND right after registration, since Firebase
+  // doesn't re-fire onIdTokenChanged just because displayName was updated.
+  function updateAccountUI(user) {
+    if (!user) {
+      accountLabelEl.textContent = window.getUiStrings ? window.getUiStrings().signIn : 'Se connecter';
+      accountAvatarEl.textContent = '?';
+      accountAvatarEl.innerHTML = '?';
+      accountMenuEmailEl.textContent = '';
+      return;
+    }
+
+    const displayName = user.displayName || (user.email ? user.email.split('@')[0] : 'Utilisateur');
+    accountLabelEl.textContent = displayName;
+    accountMenuEmailEl.textContent = user.email || '';
+
+    if (user.photoURL) {
+      accountAvatarEl.innerHTML = `<img src="${user.photoURL}" alt="">`;
+    } else {
+      accountAvatarEl.innerHTML = displayName.charAt(0).toUpperCase();
+    }
+  }
+  window.updateAccountUI = updateAccountUI;
 
   onIdTokenChanged(auth, (user) => {
     currentUser = user;
@@ -1348,21 +1667,17 @@
 
     if (user) {
       topbarSignInBtn.classList.add('hidden');
-      userChip.classList.remove('hidden');
       guestBanner.classList.add('hidden');
       chatInputEl.disabled = false;
 
-      userNameEl.textContent = user.displayName || user.email || '';
-      if (user.photoURL) {
-        userPhotoEl.src = user.photoURL;
-        userPhotoEl.style.display = '';
-      }
+      updateAccountUI(user);
 
       if (window.startApp) window.startApp();
     } else {
       topbarSignInBtn.classList.remove('hidden');
-      userChip.classList.add('hidden');
       sidebarEl.classList.add('collapsed');
+
+      updateAccountUI(null);
 
       if (window.resetToGuestView) window.resetToGuestView();
     }

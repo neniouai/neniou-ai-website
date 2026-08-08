@@ -245,6 +245,73 @@ async function waitForTurn() {
   lastRequestAt = Date.now();
 }
 
+async function askGeminiStream(contents, onChunk, attempt = 1) {
+  await waitForTurn();
+
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:streamGenerateContent?alt=sse&key=${GEMINI_API_KEY}`;
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
+      contents
+    })
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    let parsedError;
+    try { parsedError = JSON.parse(errText); } catch { /* not JSON */ }
+
+    const isRateLimit = response.status === 429;
+    if (isRateLimit && attempt <= 3) {
+      const waitMs = 15000 * attempt;
+      console.log(`⏳ Rate limit hit, waiting ${waitMs / 1000}s then retrying (${attempt}/3)...`);
+      await sleep(waitMs);
+      return askGeminiStream(contents, onChunk, attempt + 1);
+    }
+    throw new Error(parsedError?.error?.message || `Gemini streaming error: ${errText.slice(0, 200)}`);
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let fullText = '';
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop(); // keep the last, possibly incomplete line for next round
+
+    for (const line of lines) {
+      if (!line.startsWith('data: ')) continue;
+      const jsonStr = line.slice(6).trim();
+      if (!jsonStr) continue;
+
+      try {
+        const parsed = JSON.parse(jsonStr);
+        const piece = parsed?.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (piece) {
+          fullText += piece;
+          onChunk(piece);
+        }
+      } catch {
+        // ignore malformed partial chunks
+      }
+    }
+  }
+
+  if (!fullText) {
+    throw new Error('No text received from Gemini stream');
+  }
+
+  return fullText;
+}
+
 async function askGemini(contents, attempt = 1) {
   await waitForTurn();
 
@@ -531,6 +598,177 @@ app.post('/api/guest-chat', async (req, res) => {
       res.status(500).json({ error: 'Something went wrong, please try again.' });
     } else {
       res.write(`data: ${JSON.stringify({ error: 'Something went wrong, please try again.' })}\n\n`);
+      res.end();
+    }
+  }
+});
+
+app.post('/api/chat/stream', requireClientId, async (req, res) => {
+  try {
+    const { conversationId, message, image, document } = req.body;
+
+    if (!conversationId) {
+      return res.status(400).json({ error: 'conversationId is required' });
+    }
+
+    const quota = checkAndConsumeQuota(req.clientId);
+    if (!quota.allowed) {
+      return res.status(429).json({
+        error: `Limite quotidienne atteinte (${DAILY_MESSAGE_LIMIT} messages/jour). Réessayez demain.`
+      });
+    }
+
+    const hasText = typeof message === 'string' && message.trim().length > 0;
+    const hasAttachment = image && typeof image.data === 'string' && typeof image.mimeType === 'string';
+    const hasDocument = document && typeof document.data === 'string' && typeof document.mimeType === 'string';
+
+    if (!hasText && !hasAttachment && !hasDocument) {
+      return res.status(400).json({ error: 'message or attachment is required' });
+    }
+    if (hasAttachment && !ALLOWED_ATTACHMENT_TYPES.includes(image.mimeType)) {
+      return res.status(400).json({ error: 'Unsupported file type' });
+    }
+    if (hasDocument && !EXTRACTABLE_DOCUMENT_TYPES.includes(document.mimeType)) {
+      return res.status(400).json({ error: 'Unsupported document type' });
+    }
+
+    const isPdf = hasAttachment && image.mimeType === 'application/pdf';
+    const userMessage = hasText ? message.trim().slice(0, 2000) : '';
+
+    let extractedDocText = '';
+    if (hasDocument) {
+      try {
+        extractedDocText = truncateText(await extractDocumentText(document.mimeType, document.data)).text;
+      } catch (err) {
+        return res.status(400).json({ error: "Impossible de lire ce document." });
+      }
+    }
+
+    const conversation = await getConversationForClient(req.clientId, conversationId);
+    if (!conversation) {
+      return res.status(404).json({ error: 'Conversation not found' });
+    }
+
+    const userParts = [];
+    if (hasAttachment) {
+      userParts.push({ inline_data: { mime_type: image.mimeType, data: image.data } });
+    }
+    if (hasDocument) {
+      const userAsk = hasText ? userMessage : 'Résume ce document et explique-moi son contenu principal.';
+      userParts.push({ text: `Contenu du document "${document.fileName || 'document'}":\n\n${extractedDocText}\n\n${userAsk}` });
+    } else {
+      const defaultPrompt = isPdf ? 'Résume ce document.' : 'Décris cette image.';
+      userParts.push({ text: hasText ? userMessage : defaultPrompt });
+    }
+
+    const messages = conversation.messages || [];
+    messages.push({ role: 'user', parts: userParts });
+
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive'
+    });
+
+    let fullReply = '';
+    try {
+      fullReply = await askGeminiStream(messages, (piece) => {
+        res.write(`data: ${JSON.stringify({ chunk: piece })}\n\n`);
+      });
+    } catch (err) {
+      res.write(`data: ${JSON.stringify({ error: err.message || 'Erreur du modèle.' })}\n\n`);
+      return res.end();
+    }
+
+    messages.push({ role: 'model', parts: [{ text: fullReply }] });
+    while (messages.length > MAX_HISTORY_MESSAGES) messages.shift();
+
+    const newTitle = conversation.title === 'New chat' ? makeTitle(userMessage) : conversation.title;
+    await saveConversation(conversationId, { messages, title: newTitle, updatedAt: new Date().toISOString() });
+
+    res.write(`data: ${JSON.stringify({ done: true, title: newTitle })}\n\n`);
+    res.end();
+  } catch (error) {
+    console.error('❌ Stream chat error:', error.message || error);
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Something went wrong, please try again.' });
+    } else {
+      res.write(`data: ${JSON.stringify({ error: 'Erreur du serveur.' })}\n\n`);
+      res.end();
+    }
+  }
+});
+
+app.post('/api/guest-chat/stream', async (req, res) => {
+  try {
+    const guestId = req.headers['x-guest-id'];
+    if (!guestId || typeof guestId !== 'string' || guestId.length > 200) {
+      return res.status(400).json({ error: 'Missing guest id' });
+    }
+
+    let session = guestSessions.get(guestId);
+    if (!session) {
+      session = { messages: [], count: 0 };
+      guestSessions.set(guestId, session);
+    }
+
+    if (session.count >= GUEST_MESSAGE_LIMIT) {
+      return res.status(403).json({ error: 'Guest message limit reached. Please sign in to continue.' });
+    }
+
+    const { message, image, document } = req.body;
+    const hasText = typeof message === 'string' && message.trim().length > 0;
+    const hasAttachment = image && typeof image.data === 'string' && typeof image.mimeType === 'string';
+    const hasDocument = document && typeof document.data === 'string' && typeof document.mimeType === 'string';
+
+    if (!hasText && !hasAttachment && !hasDocument) {
+      return res.status(400).json({ error: 'message or attachment is required' });
+    }
+
+    const isPdf = hasAttachment && image.mimeType === 'application/pdf';
+    const userMessage = hasText ? message.trim().slice(0, 2000) : '';
+
+    let extractedDocText = '';
+    if (hasDocument) {
+      try {
+        extractedDocText = truncateText(await extractDocumentText(document.mimeType, document.data)).text;
+      } catch {
+        return res.status(400).json({ error: "Impossible de lire ce document." });
+      }
+    }
+
+    const userParts = [];
+    if (hasAttachment) userParts.push({ inline_data: { mime_type: image.mimeType, data: image.data } });
+    if (hasDocument) {
+      userParts.push({ text: `Contenu du document:\n\n${extractedDocText}\n\n${hasText ? userMessage : 'Résume ce document.'}` });
+    } else {
+      userParts.push({ text: hasText ? userMessage : (isPdf ? 'Résume ce document.' : 'Décris cette image.') });
+    }
+
+    session.messages.push({ role: 'user', parts: userParts });
+
+    res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
+
+    let fullReply = '';
+    try {
+      fullReply = await askGeminiStream(session.messages, (piece) => {
+        res.write(`data: ${JSON.stringify({ chunk: piece })}\n\n`);
+      });
+    } catch (err) {
+      res.write(`data: ${JSON.stringify({ error: err.message || 'Erreur du modèle.' })}\n\n`);
+      return res.end();
+    }
+
+    session.messages.push({ role: 'model', parts: [{ text: fullReply }] });
+    session.count += 1;
+
+    res.write(`data: ${JSON.stringify({ done: true, remaining: GUEST_MESSAGE_LIMIT - session.count })}\n\n`);
+    res.end();
+  } catch (error) {
+    console.error('❌ Guest stream error:', error.message || error);
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Something went wrong, please try again.' });
+    } else {
       res.end();
     }
   }
