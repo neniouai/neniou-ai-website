@@ -3,18 +3,18 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Neniou AI — Asistan vityèl ki pale lang ou</title>
-<meta name="description" content="Neniou AI, yon asistan vityèl ki reponn nan Kreyòl, franse, oswa angle. Poze kesyon, voye dokiman, oswa yon imaj — gratis, san kont.">
+<title>Neniou AI — Assistant virtuel qui parle votre langue</title>
+<meta name="description" content="Neniou AI, un assistant virtuel qui répond en créole, français ou anglais. Posez une question, envoyez un document ou une image — gratuit, sans compte.">
 <link rel="icon" href="/assets/icon.svg">
 
 <!-- Open Graph / social preview -->
-<meta property="og:title" content="Neniou AI — Asistan vityèl ki pale lang ou">
-<meta property="og:description" content="Yon asistan AI ki reponn nan Kreyòl, franse, oswa angle. Poze kesyon, voye dokiman, oswa yon imaj — gratis, san kont.">
+<meta property="og:title" content="Neniou AI — Assistant virtuel qui parle votre langue">
+<meta property="og:description" content="Un assistant IA qui répond en créole, français ou anglais. Posez une question, envoyez un document ou une image — gratuit, sans compte.">
 <meta property="og:type" content="website">
 <meta property="og:image" content="/assets/icon.svg">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="Neniou AI">
-<meta name="twitter:description" content="Yon asistan AI ki pale Kreyòl, franse, ak angle.">
+<meta name="twitter:description" content="Un assistant IA qui parle créole, français et anglais.">
 
 <!-- Markdown rendering + code syntax highlighting for bot replies -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
@@ -571,6 +571,18 @@
     .input-bar input { font-size: 16px; } /* prevents iOS auto-zoom on focus */
     .thread { padding: 16px 14px 8px; }
     .bubble { max-width: 92%; font-size: 0.94rem; }
+
+    .auth-modal-card {
+      padding: 26px 20px;
+      max-height: 85vh;
+      overflow-y: auto;
+    }
+
+    .code-block-wrap pre code { font-size: 0.8em; }
+
+    .guest-limit-banner { font-size: 0.82rem; padding: 10px 14px; margin-left: 12px; margin-right: 12px; }
+
+    .account-menu { left: 0; right: 0; }
   }
 </style>
 </head>
@@ -1023,13 +1035,19 @@
 
     row.appendChild(bubble);
     thread.appendChild(row);
-    threadWrap.scrollTop = threadWrap.scrollHeight;
+
+    // Anchor to the TOP of the new answer so long responses can be read
+    // from the beginning as they stream in, instead of being yanked to
+    // the bottom on every chunk (which used to hide the start of the reply).
+    row.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
     return { bubble, plainDiv };
   }
 
   function updateStreamingBotBubble(plainDiv, fullText) {
     plainDiv.textContent = fullText;
-    threadWrap.scrollTop = threadWrap.scrollHeight;
+    // No forced scroll here on purpose — the reply grows downward from the
+    // anchored top, so the person can keep reading without the view jumping.
   }
 
   function finalizeBotBubble(bubble, plainDiv, fullText) {
@@ -1039,7 +1057,8 @@
     contentDiv.innerHTML = renderMarkdownSafely(fullText);
     bubble.appendChild(contentDiv);
     enhanceCodeBlocks(contentDiv);
-    threadWrap.scrollTop = threadWrap.scrollHeight;
+    // Scroll position is left as-is so the person doesn't lose their place
+    // if they were reading from the top of a long message.
   }
 
   // Reads an SSE (text/event-stream) fetch Response and calls onChunk(text)
