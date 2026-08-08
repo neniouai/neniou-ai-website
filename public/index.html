@@ -458,6 +458,29 @@
   .bubble.bot-content a { color: var(--accent-teal); }
   .bubble.bot-content code { background: var(--bg-elevated); padding: 2px 6px; border-radius: 5px; font-size: 0.88em; }
 
+  .msg-actions {
+    display: flex; gap: 4px;
+    margin-top: 6px;
+    opacity: 0.55;
+    transition: opacity .15s;
+  }
+  .bubble:hover .msg-actions,
+  .msg-actions:has(.copied) { opacity: 1; }
+  .msg-action-btn {
+    width: 26px; height: 26px;
+    border-radius: 7px;
+    border: none;
+    background: transparent;
+    color: var(--text-dim);
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+  }
+  .msg-action-btn:hover { background: var(--bg-hover); color: var(--text); }
+  .msg-action-btn svg { width: 14px; height: 14px; }
+  .msg-action-btn.copied { color: var(--accent-teal); }
+
+  .send-btn.stop-mode svg { }
+
   .code-block-wrap { position: relative; margin: 10px 0; }
   .code-block-wrap pre { margin: 0; border-radius: 10px; border: 1px solid var(--border); }
   .code-block-wrap pre code { background: transparent; padding: 14px !important; display: block; overflow-x: auto; font-size: 0.85em; }
@@ -1074,13 +1097,49 @@
     // anchored top, so the person can keep reading without the view jumping.
   }
 
-  function finalizeBotBubble(bubble, plainDiv, fullText) {
+  let lastBotRow = null; // only the most recent bot message can be regenerated
+
+  function finalizeBotBubble(bubble, plainDiv, fullText, { allowRegenerate } = {}) {
     plainDiv.remove();
     bubble.classList.add('bot-content');
     const contentDiv = document.createElement('div');
     contentDiv.innerHTML = renderMarkdownSafely(fullText);
     bubble.appendChild(contentDiv);
     enhanceCodeBlocks(contentDiv);
+
+    // Remove the regenerate button from whichever message used to be "last"
+    if (lastBotRow) {
+      const oldRegen = lastBotRow.querySelector('.msg-action-regenerate');
+      if (oldRegen) oldRegen.remove();
+    }
+
+    const actions = document.createElement('div');
+    actions.className = 'msg-actions';
+
+    const copyBtn = document.createElement('button');
+    copyBtn.className = 'msg-action-btn';
+    copyBtn.type = 'button';
+    copyBtn.title = 'Copier';
+    copyBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 012-2h10"/></svg>';
+    copyBtn.onclick = () => {
+      navigator.clipboard.writeText(fullText).then(() => {
+        copyBtn.classList.add('copied');
+        setTimeout(() => copyBtn.classList.remove('copied'), 1200);
+      });
+    };
+    actions.appendChild(copyBtn);
+
+    if (allowRegenerate) {
+      const regenBtn = document.createElement('button');
+      regenBtn.className = 'msg-action-btn msg-action-regenerate';
+      regenBtn.type = 'button';
+      regenBtn.title = 'Régénérer';
+      regenBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 12a9 9 0 11-3-6.7"/><path d="M21 3v6h-6"/></svg>';
+      regenBtn.onclick = () => regenerateLastResponse(bubble.parentElement);
+      actions.appendChild(regenBtn);
+    }
+
+    bubble.appendChild(actions);
     // Scroll position is left as-is so the person doesn't lose their place
     // if they were reading from the top of a long message.
   }
@@ -1290,6 +1349,103 @@
   }
 
   // ===================== SENDING MESSAGES =====================
+  let currentAbortController = null;
+
+  function setSendButtonToStop() {
+    sendBtn.classList.add('stop-mode');
+    sendBtn.disabled = false;
+    sendBtn.title = 'Arrêter';
+    sendBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>';
+  }
+
+  function resetSendButton() {
+    sendBtn.classList.remove('stop-mode');
+    sendBtn.title = 'Envoyer';
+    sendBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg>';
+    updateSendButtonState();
+  }
+
+  sendBtn.addEventListener('click', (event) => {
+    if (sendBtn.classList.contains('stop-mode')) {
+      event.preventDefault();
+      if (currentAbortController) currentAbortController.abort();
+    }
+  });
+
+  // Shared streaming call used by normal sends AND regenerate.
+  // endpoint/body come from the caller; typingRow/bubble handling is common.
+  async function streamAndDisplay(endpoint, doFetch, body, { existingRow } = {}) {
+    const typingRow = existingRow ? null : addTypingIndicator();
+    currentAbortController = new AbortController();
+    setSendButtonToStop();
+
+    try {
+      const response = await doFetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: currentAbortController.signal
+      });
+
+      if (response.status === 403 && !isSignedIn) {
+        if (typingRow) typingRow.remove();
+        showGuestLimitReached();
+        return;
+      }
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => null);
+        if (typingRow) typingRow.remove();
+        addMessage(errorData?.error || 'Erreur de communication.', 'bot');
+        return;
+      }
+
+      if (typingRow) typingRow.remove();
+      const { bubble, plainDiv } = existingRow
+        ? { bubble: existingRow.querySelector('.bubble'), plainDiv: (() => {
+            const row = existingRow;
+            row.querySelector('.bubble').innerHTML = '';
+            const pd = document.createElement('div');
+            pd.style.whiteSpace = 'pre-wrap';
+            row.querySelector('.bubble').appendChild(pd);
+            return pd;
+          })() }
+        : createStreamingBotBubble();
+
+      const { fullText, meta } = await consumeSseStream(response, (textSoFar) => {
+        updateStreamingBotBubble(plainDiv, textSoFar);
+      });
+
+      if (meta.error && !fullText) {
+        bubble.parentElement.remove();
+        addMessage(meta.error, 'bot');
+      } else if (fullText.trim()) {
+        finalizeBotBubble(bubble, plainDiv, fullText.trim(), { allowRegenerate: true });
+        lastBotRow = bubble.parentElement;
+        if (isSignedIn) await refreshSidebar();
+      }
+    } catch (err) {
+      if (err.name === 'AbortError') {
+        // Person pressed "stop" — leave whatever text had already streamed in, finalized as-is.
+      } else {
+        if (typingRow) typingRow.remove();
+        addMessage('Erreur de connexion. Veuillez réessayer.', 'bot');
+      }
+    } finally {
+      currentAbortController = null;
+      resetSendButton();
+      input.focus();
+    }
+  }
+
+  async function regenerateLastResponse(botRow) {
+    if (!botRow) return;
+    const endpoint = isSignedIn ? '/api/chat/regenerate' : '/api/guest-chat/regenerate';
+    const doFetch = isSignedIn ? apiFetch : guestFetch;
+    const body = isSignedIn ? { conversationId: currentConversationId } : {};
+    await streamAndDisplay(endpoint, doFetch, body, { existingRow: botRow });
+  }
+
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
     const message = input.value.trim();
@@ -1313,61 +1469,21 @@
     removeAttachedImage();
     sendBtn.disabled = true;
 
-    const typingRow = addTypingIndicator();
-
-    try {
-      const body = isSignedIn ? { conversationId: currentConversationId, message } : { message };
-      if (fileToSend) {
-        if (fileToSend.isDocument) {
-          body.document = { mimeType: fileToSend.mimeType, data: fileToSend.data, fileName: fileToSend.fileName };
-        } else {
-          body.image = { mimeType: fileToSend.mimeType, data: fileToSend.data };
-        }
-      }
-
-      const endpoint = isSignedIn ? '/api/chat' : '/api/guest-chat';
-      const doFetch = isSignedIn ? apiFetch : guestFetch;
-
-      const response = await doFetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
-      });
-
-      if (response.status === 403 && !isSignedIn) {
-        typingRow.remove();
-        showGuestLimitReached();
-        return;
-      }
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => null);
-        typingRow.remove();
-        addMessage(errorData?.error || 'Erreur de communication.', 'bot');
-        return;
-      }
-
-      typingRow.remove();
-      const { bubble, plainDiv } = createStreamingBotBubble();
-
-      const { fullText, meta } = await consumeSseStream(response, (textSoFar) => {
-        updateStreamingBotBubble(plainDiv, textSoFar);
-      });
-
-      if (meta.error && !fullText) {
-        bubble.parentElement.remove();
-        addMessage(meta.error, 'bot');
+    const body = isSignedIn ? { conversationId: currentConversationId, message } : { message };
+    if (fileToSend) {
+      if (fileToSend.isDocument) {
+        body.document = { mimeType: fileToSend.mimeType, data: fileToSend.data, fileName: fileToSend.fileName };
       } else {
-        finalizeBotBubble(bubble, plainDiv, fullText.trim());
-        if (isSignedIn) await refreshSidebar();
+        body.image = { mimeType: fileToSend.mimeType, data: fileToSend.data };
       }
-    } catch (err) {
-      typingRow.remove();
-      addMessage('Erreur de connexion. Veuillez réessayer.', 'bot');
-    } finally {
-      input.focus();
     }
+
+    const endpoint = isSignedIn ? '/api/chat' : '/api/guest-chat';
+    const doFetch = isSignedIn ? apiFetch : guestFetch;
+
+    await streamAndDisplay(endpoint, doFetch, body);
   });
+
 
   // ===================== STARTUP =====================
   async function startApp() {
