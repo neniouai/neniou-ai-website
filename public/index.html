@@ -1635,6 +1635,9 @@
     currentConversationId = null;
     resetThreadView();
     document.getElementById('guest-limit-banner').classList.add('hidden');
+    document.getElementById('conversation-search').value = '';
+    cachedConversations = [];
+    conversationListEl.innerHTML = '<div class="sidebar-empty">Connectez-vous pour garder l\'historique de vos conversations</div>';
     input.disabled = false;
     input.focus();
   }
