@@ -1494,7 +1494,7 @@
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
   import {
-    getAuth, GoogleAuthProvider, signInWithRedirect, getRedirectResult, signOut, onIdTokenChanged,
+    getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signOut, onIdTokenChanged,
     signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile
   } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 
@@ -1619,13 +1619,24 @@
     }
   }
 
-  // signInWithRedirect works far more reliably than a popup across browsers
-  // (Firefox/Safari private windows, strict third-party-cookie settings, etc.)
+  // Popup avoids the full-page redirect round-trip, which browsers with
+  // strict "Tracking Prevention" (Edge) or ITP (Safari) can break by
+  // blocking storage access for the firebaseapp.com auth domain.
+  // Redirect is kept only as a fallback if the popup itself is blocked.
   async function startGoogleSignIn() {
     try {
-      await signInWithRedirect(auth, provider);
+      await signInWithPopup(auth, provider);
     } catch (err) {
-      console.error('Sign-in error:', err);
+      const popupIssue = ['auth/popup-blocked', 'auth/cancelled-popup-request', 'auth/operation-not-supported-in-this-environment'].includes(err.code);
+      if (popupIssue) {
+        try {
+          await signInWithRedirect(auth, provider);
+        } catch (err2) {
+          console.error('Sign-in error (redirect fallback):', err2);
+        }
+      } else if (err.code !== 'auth/popup-closed-by-user') {
+        console.error('Sign-in error:', err);
+      }
     }
   }
   modalGoogleBtn.addEventListener('click', startGoogleSignIn);
