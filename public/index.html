@@ -21,6 +21,7 @@
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="Neniou AI">
 <meta name="twitter:description" content="Un assistant IA qui parle créole, français et anglais.">
+<meta name="google-signin-client_id" content="542144584052-5abdotfuc9d1h4f5kqtb17v1mr9dec0h.apps.googleusercontent.com">
 
 <!-- Canonical URL — will point correctly once neniouai.com is live -->
 <link rel="canonical" href="https://neniouai.com/">
@@ -1846,7 +1847,7 @@
   import {
     getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signOut, onIdTokenChanged,
     signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile,
-    sendPasswordResetEmail, deleteUser
+    sendPasswordResetEmail, deleteUser, signInWithCredential
   } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 
   const firebaseConfig = {
@@ -1992,7 +1993,34 @@
   // strict "Tracking Prevention" (Edge) or ITP (Safari) can break by
   // blocking storage access for the firebaseapp.com auth domain.
   // Redirect is kept only as a fallback if the popup itself is blocked.
+  //
+  // Inside the packaged Android app, Google blocks OAuth in embedded
+  // WebViews entirely — so there we use the native GoogleAuth plugin
+  // (installed via Capacitor) instead, and hand its ID token to Firebase.
+  function isNativeApp() {
+    return !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+  }
+
+  async function signInWithGoogleNative() {
+    const GoogleAuthPlugin = window.Capacitor.Plugins.GoogleAuth;
+    await GoogleAuthPlugin.initialize();
+    const googleUser = await GoogleAuthPlugin.signIn();
+    const idToken = googleUser?.authentication?.idToken;
+    if (!idToken) throw new Error('No ID token returned from native Google Sign-In');
+    const credential = GoogleAuthProvider.credential(idToken);
+    await signInWithCredential(auth, credential);
+  }
+
   async function startGoogleSignIn() {
+    if (isNativeApp()) {
+      try {
+        await signInWithGoogleNative();
+      } catch (err) {
+        console.error('Native Google sign-in error:', err);
+      }
+      return;
+    }
+
     try {
       await signInWithPopup(auth, provider);
     } catch (err) {
