@@ -548,6 +548,7 @@
   .msg-action-btn:hover { background: var(--bg-hover); color: var(--text); }
   .msg-action-btn svg { width: 14px; height: 14px; }
   .msg-action-btn.copied { color: var(--accent-teal); }
+  .msg-action-btn.speaking { color: var(--accent-blue); }
 
 
   .code-block-wrap { position: relative; margin: 10px 0; }
@@ -629,6 +630,12 @@
   .send-btn:not(:disabled):hover { background: #303134; color: var(--text); }
   .send-btn:disabled { opacity: .4; cursor: default; }
   .attach-btn svg, .send-btn svg { width: 18px; height: 18px; }
+
+  #mic-btn.recording { background: var(--error); color: #fff; animation: micPulse 1.2s infinite; }
+  @keyframes micPulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(242,139,130,0.5); }
+    50% { box-shadow: 0 0 0 8px rgba(242,139,130,0); }
+  }
 
   .disclaimer { text-align: center; font-size: 0.72rem; color: var(--text-dim); padding-bottom: 14px; }
 
@@ -864,6 +871,9 @@
         </button>
         <input type="file" id="image-input" accept="image/png,image/jpeg,image/webp,image/heic,image/heif,application/pdf,.docx,.xlsx,.xls,.txt,.csv,.md,.json,.html,.xml,.rtf" style="display:none">
         <textarea id="chat-input" rows="1" placeholder="Écrivez un message pour Neniou AI..."></textarea>
+        <button type="button" class="attach-btn" id="mic-btn" title="Parler au lieu d'écrire">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/><path d="M19 10v2a7 7 0 01-14 0v-2M12 19v4M8 23h8"/></svg>
+        </button>
         <button class="send-btn" id="send-btn" type="submit" disabled aria-label="Envoyer">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
         </button>
@@ -982,6 +992,88 @@
 
   attachBtn.addEventListener('click', () => imageInput.click());
 
+  // ===================== VOICE INPUT (free, browser-native) =====================
+  const micBtn = document.getElementById('mic-btn');
+  const SpeechRecognitionAPI = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+  if (!SpeechRecognitionAPI) {
+    micBtn.style.display = 'none'; // not supported on this browser — hide gracefully
+  } else {
+    const recognition = new SpeechRecognitionAPI();
+    recognition.continuous = false;
+    recognition.interimResults = true;
+
+    let isRecording = false;
+
+    function detectSpeechLang() {
+      const t = input.value.trim();
+      if (/[àâäéèêëïîôöùûüÿçœæ]/i.test(t)) return 'fr-FR';
+      if (/[a-zA-Z]/.test(t) && !/[àâäéèêëïîôöùûüÿçœæ]/i.test(t)) return 'en-US';
+      return 'ht'; // best-effort; browsers vary in Kreyòl support, falls back gracefully
+    }
+
+    micBtn.addEventListener('click', () => {
+      if (isRecording) {
+        recognition.stop();
+        return;
+      }
+      try {
+        recognition.lang = navigator.language?.startsWith('fr') ? 'fr-FR' : 'en-US';
+        recognition.start();
+      } catch (err) {
+        console.error('Speech recognition failed to start', err);
+      }
+    });
+
+    recognition.addEventListener('start', () => {
+      isRecording = true;
+      micBtn.classList.add('recording');
+    });
+
+    recognition.addEventListener('end', () => {
+      isRecording = false;
+      micBtn.classList.remove('recording');
+    });
+
+    recognition.addEventListener('error', () => {
+      isRecording = false;
+      micBtn.classList.remove('recording');
+    });
+
+    recognition.addEventListener('result', (event) => {
+      let transcript = '';
+      for (let i = 0; i < event.results.length; i++) {
+        transcript += event.results[i][0].transcript;
+      }
+      input.value = transcript;
+      autoResizeInput();
+      updateSendButtonState();
+    });
+  }
+
+  // ===================== VOICE OUTPUT (free, browser-native) =====================
+  function speakText(text, button) {
+    if (!('speechSynthesis' in window)) return;
+
+    if (window.speechSynthesis.speaking) {
+      window.speechSynthesis.cancel();
+      if (button) button.classList.remove('speaking');
+      return;
+    }
+
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = /[àâäéèêëïîôöùûüÿçœæ]/i.test(text) ? 'fr-FR' : 'en-US';
+    utterance.rate = 1;
+
+    if (button) {
+      button.classList.add('speaking');
+      utterance.onend = () => button.classList.remove('speaking');
+      utterance.onerror = () => button.classList.remove('speaking');
+    }
+
+    window.speechSynthesis.speak(utterance);
+  }
+
   const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
   const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
   const XLS_MIME = 'application/vnd.ms-excel';
@@ -1086,9 +1178,13 @@
     });
   }
 
+  let historyIndexCounter = 0;
+  let pendingEditIndex = null;
+
   function addMessage(text, role, imageUrl, fileName) {
     const row = document.createElement('div');
     row.className = 'msg-row ' + role;
+    row.dataset.historyIndex = historyIndexCounter++;
 
     if (role === 'bot') {
       const avatar = document.createElement('div');
@@ -1123,6 +1219,21 @@
         const textNode = document.createElement('div');
         textNode.textContent = text;
         bubble.appendChild(textNode);
+
+        // Editing is only offered for plain text messages (no attachment),
+        // to avoid needing to re-upload files/images when resending.
+        if (!imageUrl && !fileName) {
+          const editBtn = document.createElement('button');
+          editBtn.className = 'msg-action-btn user-edit-btn';
+          editBtn.type = 'button';
+          editBtn.title = 'Modifier';
+          editBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 20h9M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>';
+          editBtn.onclick = () => startEditingMessage(row, text);
+          const actions = document.createElement('div');
+          actions.className = 'msg-actions';
+          actions.appendChild(editBtn);
+          bubble.appendChild(actions);
+        }
       }
     }
 
@@ -1131,6 +1242,27 @@
     threadWrap.scrollTop = threadWrap.scrollHeight;
     return bubble;
   }
+
+  function startEditingMessage(userRow, currentText) {
+    const targetIndex = Number(userRow.dataset.historyIndex);
+
+    // Remove this message and everything that came after it from view —
+    // it'll all be replaced once the edited message gets a fresh reply.
+    let node = userRow;
+    while (node) {
+      const next = node.nextSibling;
+      node.remove();
+      node = next;
+    }
+    historyIndexCounter = targetIndex;
+
+    pendingEditIndex = targetIndex;
+    input.value = currentText;
+    autoResizeInput();
+    updateSendButtonState();
+    input.focus();
+  }
+
 
   function addTypingIndicator() {
     const row = document.createElement('div');
@@ -1215,6 +1347,14 @@
     };
     actions.appendChild(copyBtn);
 
+    const speakBtn = document.createElement('button');
+    speakBtn.className = 'msg-action-btn';
+    speakBtn.type = 'button';
+    speakBtn.title = 'Écouter';
+    speakBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M19 12a4 4 0 00-2.5-3.7M19 12a4 4 0 01-2.5 3.7"/></svg>';
+    speakBtn.onclick = () => speakText(fullText, speakBtn);
+    actions.appendChild(speakBtn);
+
     if (allowRegenerate) {
       const regenBtn = document.createElement('button');
       regenBtn.className = 'msg-action-btn msg-action-regenerate';
@@ -1278,6 +1418,8 @@
     thread.innerHTML = '';
     threadWrap.classList.add('hidden');
     stage.classList.remove('hidden');
+    historyIndexCounter = 0;
+    pendingEditIndex = null;
   }
 
   // ===================== CONVERSATIONS (sidebar) =====================
@@ -1604,6 +1746,28 @@
     const message = input.value.trim();
     if (!message && !attachedImage) return;
 
+    // ---- Editing a previously sent message ----
+    if (pendingEditIndex !== null) {
+      const editIndex = pendingEditIndex;
+      pendingEditIndex = null;
+
+      showThreadView();
+      addMessage(message, 'user');
+      input.value = '';
+      autoResizeInput();
+      sendBtn.disabled = true;
+
+      const editEndpoint = isSignedIn ? '/api/chat/edit' : '/api/guest-chat/edit';
+      const editDoFetch = isSignedIn ? apiFetch : guestFetch;
+      const editBody = isSignedIn
+        ? { conversationId: currentConversationId, messageIndex: editIndex, newText: message }
+        : { messageIndex: editIndex, newText: message };
+
+      await streamAndDisplay(editEndpoint, editDoFetch, editBody);
+      return;
+    }
+
+    // ---- Normal new message ----
     if (isSignedIn && !currentConversationId) {
       await createNewConversation();
     }

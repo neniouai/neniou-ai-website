@@ -228,19 +228,26 @@ app.delete('/api/account/data', requireClientId, async (req, res) => {
 // =====================================================================
 // GEMINI CHAT LOGIC
 // =====================================================================
-const SYSTEM_PROMPT = `You are "Neniou AI", a virtual assistant created by Hanania.
+function buildSystemPrompt() {
+  const now = new Date();
+  const dateStr = now.toLocaleDateString('fr-FR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', timeZone: 'America/Port-au-Prince' });
+
+  return `You are "Neniou AI", a virtual assistant created by Hanania.
+
+CURRENT DATE: Today is ${dateStr} (Haiti time). Always use this as the real, correct current date — never guess or rely on your training data for "what year/date is it today", since your training data has a cutoff in the past. If asked the date, time-relative questions ("this year", "how many years since X"), always calculate from the date above.
 
 STRICT RULES:
 1. Reply in the SAME LANGUAGE as the person's MOST RECENT message, not the language used earlier in this conversation. Each message can be in a different language than the one before it — always check the latest message specifically and match that one. If they write in Haitian Creole, reply in Haitian Creole. If they write in French, reply in French. If they write in English, reply in English. If they write in another language, reply in that language. Never mix languages in a single reply, and never default to a language just because earlier turns used it.
 2. Never mention your name ("Neniou AI") or who created you unless directly asked something like "who are you", "what's your name", or "who made you". If they don't ask, just answer directly without introducing yourself.
 3. If asked about your identity, only then say you are Neniou AI, created by Hanania — always in the language the person used. Never say you are Gemini, Google, or any other name.
-4. Stay friendly, clear, and direct in your answers.
+4. Stay friendly, clear, and direct in your answers. Match the depth of your answer to the question: for simple factual or conversational messages, a short direct answer is right. For questions that ask for an explanation, a list of options, a comparison, or "how" / "why" something works, give a genuinely useful, reasonably detailed answer instead of a one-line reply — don't sacrifice usefulness just to be brief.
 5. Remember what was said earlier in this conversation (the history below) and stay consistent with it — don't treat every message as a brand new conversation.
 6. Never repeat a previous reply word-for-word. Each answer must directly address what the person just wrote, even if their message is short, informal, or uses slang.
 7. You may use light Markdown formatting when it genuinely helps readability: **bold** for key terms, numbered or bulleted lists for steps or multiple items, and fenced code blocks (\`\`\`) for any code or command. Don't overuse formatting for short conversational replies.
 8. If the person sends an image or a PDF document, look at it carefully and respond to what they asked about it (summarize, explain, answer questions about it, or describe it helpfully if they didn't ask a specific question).
 9. Respect the person's privacy: never ask for personal information (full name, phone number, address, ID numbers, etc.) unless it's clearly necessary to answer their specific question, and never repeat sensitive personal details back unnecessarily. If asked how their data is handled, explain plainly that conversations are stored only to keep context for that person, are not sold or shared with advertisers, and are used only to generate replies.
 10. When writing in Haitian Creole, use correct standard orthography, including apostrophes for elided pronouns and markers. Common correct forms: "m ap" or "m'ap", "w ap" or "w'ap", "l ap" or "l'ap", "n ap" or "n'ap", "yo ap", "pa gen", "se yon", "genyen". Do not drop apostrophes where they're grammatically expected, and do not insert them where they don't belong (e.g. "li pa" not "li p'a", "ou vle" not "ou v'le"). Prioritize natural, correctly spelled Kreyòl over literal transcription of casual speech.`;
+}
 
 const MAX_HISTORY_MESSAGES = 30;
 
@@ -269,7 +276,7 @@ async function askGemini(contents, attempt = 1) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
+      system_instruction: { parts: [{ text: buildSystemPrompt() }] },
       contents
     })
   });
@@ -313,7 +320,7 @@ async function* streamGeminiChunks(contents, attempt = 1) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
+      system_instruction: { parts: [{ text: buildSystemPrompt() }] },
       contents
     })
   });
@@ -406,7 +413,7 @@ function truncateText(text) {
 // =====================================================================
 // FAIR-USE DAILY LIMIT (in addition to the burst rate limiter above)
 // =====================================================================
-const DAILY_MESSAGE_LIMIT = Number(process.env.DAILY_MESSAGE_LIMIT) || 40;
+const DAILY_MESSAGE_LIMIT = Number(process.env.DAILY_MESSAGE_LIMIT) || 60;
 const usageByClient = new Map();
 
 function todayKey() {
@@ -438,7 +445,7 @@ function checkAndConsumeQuota(clientId) {
 // Gemini/ChatGPT do. Limited to a few messages, kept only in memory
 // (not saved to Firestore), and reset if the server restarts.
 // =====================================================================
-const GUEST_MESSAGE_LIMIT = Number(process.env.GUEST_MESSAGE_LIMIT) || 3;
+const GUEST_MESSAGE_LIMIT = Number(process.env.GUEST_MESSAGE_LIMIT) || 8;
 const guestSessions = new Map(); // guestId -> { messages: [...], count }
 
 app.post('/api/guest-chat/reset', (req, res) => {
@@ -721,6 +728,145 @@ app.post('/api/chat', requireClientId, async (req, res) => {
 // REGENERATE — re-run the model on the existing history after dropping
 // the last answer, instead of appending a brand new user turn.
 // =====================================================================
+// =====================================================================
+// EDIT MESSAGE — replaces a previously sent user message, drops
+// everything that came after it, and generates a fresh reply.
+// =====================================================================
+app.post('/api/chat/edit', requireClientId, async (req, res) => {
+  try {
+    const { conversationId, messageIndex, newText } = req.body;
+
+    if (!conversationId || typeof messageIndex !== 'number' || typeof newText !== 'string' || !newText.trim()) {
+      return res.status(400).json({ error: 'conversationId, messageIndex and newText are required' });
+    }
+
+    const quota = checkAndConsumeQuota(req.clientId);
+    if (!quota.allowed) {
+      return res.status(429).json({
+        error: `Limite quotidienne atteinte (${DAILY_MESSAGE_LIMIT} messages/jour). Réessayez demain.`
+      });
+    }
+
+    const conversation = await getConversationForClient(req.clientId, conversationId);
+    if (!conversation) {
+      return res.status(404).json({ error: 'Conversation not found' });
+    }
+
+    const messages = conversation.messages || [];
+    if (messageIndex < 0 || messageIndex >= messages.length || messages[messageIndex].role !== 'user') {
+      return res.status(400).json({ error: 'Invalid message to edit' });
+    }
+
+    // Drop this message and everything after it, then add the edited version.
+    const truncated = messages.slice(0, messageIndex);
+    truncated.push({ role: 'user', parts: [{ text: newText.trim().slice(0, 2000) }] });
+
+    res.set({ 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
+    res.flushHeaders?.();
+
+    let clientDisconnected = false;
+    req.on('close', () => { clientDisconnected = true; });
+
+    let fullReply = '';
+    try {
+      for await (const chunk of streamGeminiChunks(truncated)) {
+        if (clientDisconnected) break;
+        fullReply += chunk;
+        res.write(`data: ${JSON.stringify({ text: chunk })}\n\n`);
+      }
+    } catch (streamErr) {
+      if (!clientDisconnected) {
+        res.write(`data: ${JSON.stringify({ error: 'Erreur pendant la génération de la réponse.' })}\n\n`);
+        res.end();
+      }
+      return;
+    }
+
+    if (fullReply.trim()) {
+      truncated.push({ role: 'model', parts: [{ text: fullReply.trim() }] });
+    }
+
+    const newTitle = messageIndex === 0 ? makeTitle(newText.trim()) : conversation.title;
+    await saveConversation(conversationId, { messages: truncated, title: newTitle, updatedAt: new Date().toISOString() }).catch(() => {});
+
+    if (clientDisconnected) return;
+
+    res.write(`data: ${JSON.stringify({ done: true, title: newTitle })}\n\n`);
+    res.end();
+  } catch (error) {
+    console.error('❌ Edit message error:', error.message || error);
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Something went wrong, please try again.' });
+    } else {
+      res.end();
+    }
+  }
+});
+
+app.post('/api/guest-chat/edit', async (req, res) => {
+  try {
+    const guestId = req.headers['x-guest-id'];
+    if (!guestId || typeof guestId !== 'string' || guestId.length > 200) {
+      return res.status(400).json({ error: 'Missing guest id' });
+    }
+
+    const { messageIndex, newText } = req.body;
+    if (typeof messageIndex !== 'number' || typeof newText !== 'string' || !newText.trim()) {
+      return res.status(400).json({ error: 'messageIndex and newText are required' });
+    }
+
+    const session = guestSessions.get(guestId);
+    if (!session || messageIndex < 0 || messageIndex >= session.messages.length || session.messages[messageIndex].role !== 'user') {
+      return res.status(400).json({ error: 'Invalid message to edit' });
+    }
+
+    if (session.count >= GUEST_MESSAGE_LIMIT) {
+      return res.status(403).json({ error: 'Guest message limit reached. Please sign in to continue.' });
+    }
+
+    session.messages = session.messages.slice(0, messageIndex);
+    session.messages.push({ role: 'user', parts: [{ text: newText.trim().slice(0, 2000) }] });
+
+    res.set({ 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
+    res.flushHeaders?.();
+
+    let clientDisconnected = false;
+    req.on('close', () => { clientDisconnected = true; });
+
+    let fullReply = '';
+    try {
+      for await (const chunk of streamGeminiChunks(session.messages)) {
+        if (clientDisconnected) break;
+        fullReply += chunk;
+        res.write(`data: ${JSON.stringify({ text: chunk })}\n\n`);
+      }
+    } catch (streamErr) {
+      if (!clientDisconnected) {
+        res.write(`data: ${JSON.stringify({ error: 'Erreur pendant la génération de la réponse.' })}\n\n`);
+        res.end();
+      }
+      return;
+    }
+
+    if (fullReply.trim()) {
+      session.messages.push({ role: 'model', parts: [{ text: fullReply.trim() }] });
+      session.count += 1;
+    }
+
+    if (clientDisconnected) return;
+
+    res.write(`data: ${JSON.stringify({ done: true, remaining: GUEST_MESSAGE_LIMIT - session.count })}\n\n`);
+    res.end();
+  } catch (error) {
+    console.error('❌ Guest edit error:', error.message || error);
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Something went wrong, please try again.' });
+    } else {
+      res.end();
+    }
+  }
+});
+
 app.post('/api/chat/regenerate', requireClientId, async (req, res) => {
   try {
     const { conversationId } = req.body;
