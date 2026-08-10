@@ -46,6 +46,57 @@ admin.initializeApp({
 
 const db = admin.firestore();
 const conversationsCollection = db.collection('conversations');
+const systemStateCollection = db.collection('systemState');
+
+// =====================================================================
+// IMAGE GENERATION BUDGET — a real per-image cost, so this needs a hard,
+// durable cap that survives restarts (unlike the free-tier text quotas
+// above, which just protect against being rate-limited).
+// =====================================================================
+const IMAGE_MONTHLY_BUDGET_USD = Number(process.env.IMAGE_MONTHLY_BUDGET_USD) || 5;
+const IMAGE_COST_USD = 0.04; // rounded up slightly from the real ~$0.039 for safety margin
+const MAX_IMAGES_PER_MONTH = Math.floor(IMAGE_MONTHLY_BUDGET_USD / IMAGE_COST_USD);
+const IMAGES_PER_USER_PER_DAY = Number(process.env.IMAGES_PER_USER_PER_DAY) || 3;
+
+function currentMonthKey() {
+  return new Date().toISOString().slice(0, 7); // "2026-08"
+}
+
+async function checkAndConsumeImageBudget() {
+  const monthKey = currentMonthKey();
+  const docRef = systemStateCollection.doc('imageUsage');
+
+  return db.runTransaction(async (transaction) => {
+    const doc = await transaction.get(docRef);
+    const data = doc.exists ? doc.data() : {};
+    const currentCount = data.monthKey === monthKey ? (data.count || 0) : 0;
+
+    if (currentCount >= MAX_IMAGES_PER_MONTH) {
+      return { allowed: false, remaining: 0 };
+    }
+
+    transaction.set(docRef, { monthKey, count: currentCount + 1 });
+    return { allowed: true, remaining: MAX_IMAGES_PER_MONTH - currentCount - 1 };
+  });
+}
+
+const imageUsageByUser = new Map(); // clientId -> { count, dayKey }
+
+function checkAndConsumeUserImageQuota(clientId) {
+  const key = new Date().toISOString().slice(0, 10);
+  const entry = imageUsageByUser.get(clientId);
+
+  if (!entry || entry.dayKey !== key) {
+    imageUsageByUser.set(clientId, { count: 1, dayKey: key });
+    return true;
+  }
+  if (entry.count >= IMAGES_PER_USER_PER_DAY) {
+    return false;
+  }
+  entry.count += 1;
+  return true;
+}
+
 
 async function listConversationsForClient(clientId) {
   // Sorting in JS instead of using .orderBy() avoids needing a Firestore
@@ -265,6 +316,49 @@ async function waitForTurn() {
     await sleep(MIN_REQUEST_SPACING_MS - elapsed);
   }
   lastRequestAt = Date.now();
+}
+
+const IMAGE_GEN_MODEL = 'gemini-2.5-flash-image';
+
+async function generateImage(prompt) {
+  await waitForTurn();
+
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${IMAGE_GEN_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      generationConfig: { responseModalities: ['TEXT', 'IMAGE'] }
+    })
+  });
+
+  const text = await response.text();
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    throw new Error(`Gemini did not return JSON: ${text.slice(0, 200)}`);
+  }
+
+  if (data.error) {
+    throw new Error(data.error.message || 'Unknown Gemini image generation error');
+  }
+
+  const parts = data?.candidates?.[0]?.content?.parts || [];
+  const imagePart = parts.find((p) => p.inline_data);
+  const textPart = parts.find((p) => p.text);
+
+  if (!imagePart) {
+    throw new Error('Gemini did not return an image for this prompt.');
+  }
+
+  return {
+    mimeType: imagePart.inline_data.mime_type,
+    data: imagePart.inline_data.data,
+    caption: textPart?.text?.trim() || ''
+  };
 }
 
 async function askGemini(contents, attempt = 1) {
@@ -732,6 +826,75 @@ app.post('/api/chat', requireClientId, async (req, res) => {
 // EDIT MESSAGE — replaces a previously sent user message, drops
 // everything that came after it, and generates a fresh reply.
 // =====================================================================
+// =====================================================================
+// IMAGE GENERATION — signed-in users only (real per-image cost), with a
+// shared monthly budget cap and a per-user daily cap on top of it.
+// =====================================================================
+app.post('/api/chat/generate-image', requireClientId, async (req, res) => {
+  try {
+    const { conversationId, prompt } = req.body;
+
+    if (!conversationId || typeof prompt !== 'string' || !prompt.trim()) {
+      return res.status(400).json({ error: 'conversationId and prompt are required' });
+    }
+
+    const userDaily = checkAndConsumeUserImageQuota(req.clientId);
+    if (!userDaily) {
+      return res.status(429).json({
+        error: `Limite de ${IMAGES_PER_USER_PER_DAY} images par jour atteinte. Réessayez demain.`
+      });
+    }
+
+    const budget = await checkAndConsumeImageBudget();
+    if (!budget.allowed) {
+      return res.status(429).json({
+        error: "Le budget mensuel d'images est épuisé pour ce mois-ci. Réessayez le mois prochain."
+      });
+    }
+
+    const conversation = await getConversationForClient(req.clientId, conversationId);
+    if (!conversation) {
+      return res.status(404).json({ error: 'Conversation not found' });
+    }
+
+    const cleanPrompt = prompt.trim().slice(0, 500);
+    console.log(`🎨 [${req.clientId.slice(0, 8)}] Generating image (${budget.remaining} left this month)`);
+
+    let image;
+    try {
+      image = await generateImage(cleanPrompt);
+    } catch (err) {
+      console.error('❌ Image generation error:', err.message || err);
+      return res.status(500).json({ error: "La génération d'image a échoué. Essayez une autre description." });
+    }
+
+    const messages = conversation.messages || [];
+    messages.push({ role: 'user', parts: [{ text: `[Demande d'image] ${cleanPrompt}` }] });
+    messages.push({
+      role: 'model',
+      parts: [
+        { inline_data: { mime_type: image.mimeType, data: image.data } },
+        { text: image.caption || '' }
+      ]
+    });
+
+    while (messages.length > MAX_HISTORY_MESSAGES) messages.shift();
+
+    const newTitle = conversation.title === 'New chat' ? makeTitle(cleanPrompt) : conversation.title;
+    await saveConversation(conversationId, { messages, title: newTitle, updatedAt: new Date().toISOString() });
+
+    res.json({
+      imageBase64: image.data,
+      mimeType: image.mimeType,
+      caption: image.caption,
+      title: newTitle
+    });
+  } catch (error) {
+    console.error('❌ Generate image route error:', error.message || error);
+    res.status(500).json({ error: 'Something went wrong, please try again.' });
+  }
+});
+
 app.post('/api/chat/edit', requireClientId, async (req, res) => {
   try {
     const { conversationId, messageIndex, newText } = req.body;

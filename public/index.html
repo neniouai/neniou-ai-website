@@ -638,6 +638,8 @@
     50% { box-shadow: 0 0 0 8px rgba(242,139,130,0); }
   }
 
+  .image-gen-btn.active { background: var(--accent-teal); color: #0b0c0d; }
+
   .disclaimer { text-align: center; font-size: 0.72rem; color: var(--text-dim); padding-bottom: 14px; }
 
   @media (max-width: 780px) {
@@ -875,6 +877,9 @@
         <button type="button" class="attach-btn" id="mic-btn" title="Parler au lieu d'écrire">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/><path d="M19 10v2a7 7 0 01-14 0v-2M12 19v4M8 23h8"/></svg>
         </button>
+        <button type="button" class="attach-btn image-gen-btn hidden" id="image-gen-btn" title="Générer une image (réservé aux comptes connectés)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
+        </button>
         <button class="send-btn" id="send-btn" type="submit" disabled aria-label="Envoyer">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
         </button>
@@ -992,6 +997,19 @@
   });
 
   attachBtn.addEventListener('click', () => imageInput.click());
+
+  // ===================== IMAGE GENERATION (signed-in only) =====================
+  const imageGenBtn = document.getElementById('image-gen-btn');
+  let imageGenMode = false;
+
+  imageGenBtn.addEventListener('click', () => {
+    imageGenMode = !imageGenMode;
+    imageGenBtn.classList.toggle('active', imageGenMode);
+    input.placeholder = imageGenMode
+      ? 'Décrivez l\'image à générer...'
+      : 'Écrivez un message pour Neniou AI...';
+    input.focus();
+  });
 
   // ===================== VOICE INPUT (free, browser-native) =====================
   const micBtn = document.getElementById('mic-btn');
@@ -1747,6 +1765,47 @@
     const message = input.value.trim();
     if (!message && !attachedImage) return;
 
+    // ---- Generating an image ----
+    if (imageGenMode && isSignedIn) {
+      if (!currentConversationId) await createNewConversation();
+
+      showThreadView();
+      addMessage(message, 'user');
+      input.value = '';
+      autoResizeInput();
+      imageGenMode = false;
+      imageGenBtn.classList.remove('active');
+      input.placeholder = 'Écrivez un message pour Neniou AI...';
+      sendBtn.disabled = true;
+
+      const typingRow = addTypingIndicator();
+
+      try {
+        const response = await apiFetch('/api/chat/generate-image', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ conversationId: currentConversationId, prompt: message })
+        });
+
+        typingRow.remove();
+        const data = await response.json();
+
+        if (!response.ok) {
+          addMessage(data?.error || "Échec de la génération d'image.", 'bot');
+        } else {
+          const dataUrl = `data:${data.mimeType};base64,${data.imageBase64}`;
+          addMessage(data.caption || '', 'bot', dataUrl);
+          await refreshSidebar();
+        }
+      } catch (err) {
+        typingRow.remove();
+        addMessage('Erreur de connexion. Veuillez réessayer.', 'bot');
+      } finally {
+        input.focus();
+      }
+      return;
+    }
+
     // ---- Editing a previously sent message ----
     if (pendingEditIndex !== null) {
       const editIndex = pendingEditIndex;
@@ -2238,10 +2297,13 @@
     currentUser = user;
     window.isSignedIn = !!user;
 
+    const imageGenBtnEl = document.getElementById('image-gen-btn');
+
     if (user) {
       topbarSignInBtn.classList.add('hidden');
       guestBanner.classList.add('hidden');
       chatInputEl.disabled = false;
+      imageGenBtnEl.classList.remove('hidden');
 
       updateAccountUI(user);
 
@@ -2249,6 +2311,7 @@
     } else {
       topbarSignInBtn.classList.remove('hidden');
       sidebarEl.classList.add('collapsed');
+      imageGenBtnEl.classList.add('hidden');
 
       updateAccountUI(null);
 
