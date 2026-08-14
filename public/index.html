@@ -553,6 +553,18 @@
   }
   .admin-section-title:first-of-type { margin-top: 0; }
 
+  .admin-live-label {
+    font-size: 0.76rem; color: var(--accent-teal);
+    margin: -20px 0 24px; display: flex; align-items: center; gap: 6px;
+  }
+  .admin-live-label::before {
+    content: ''; width: 6px; height: 6px; border-radius: 50%;
+    background: var(--accent-teal); animation: adminLivePulse 1.6s infinite;
+  }
+  @keyframes adminLivePulse {
+    0%, 100% { opacity: 1; } 50% { opacity: 0.3; }
+  }
+
   .admin-stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 14px; }
   .admin-stat-card {
     background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 14px;
@@ -2213,6 +2225,7 @@
           </button>
         </div>
       </div>
+      <div class="admin-live-label">🟢 Mise à jour automatique toutes les 15 secondes</div>
 
       <div class="admin-section-title">Vue d'ensemble</div>
       <div class="admin-stat-grid">
@@ -2245,6 +2258,7 @@
     `;
 
     document.getElementById('admin-close-btn').onclick = () => {
+      stopAdminAutoRefresh();
       document.getElementById('admin-dashboard').classList.add('hidden');
       const url = new URL(window.location);
       url.searchParams.delete('admin');
@@ -2254,12 +2268,29 @@
   }
 
   let adminAccessCode = '';
+  let adminRefreshInterval = null;
+  const ADMIN_REFRESH_MS = 15000;
 
-  async function loadAdminDashboard() {
-    document.getElementById('admin-container').innerHTML = '<div class="admin-loading">Chargement...</div>';
+  function startAdminAutoRefresh() {
+    stopAdminAutoRefresh();
+    adminRefreshInterval = setInterval(() => loadAdminDashboard(true), ADMIN_REFRESH_MS);
+  }
+
+  function stopAdminAutoRefresh() {
+    if (adminRefreshInterval) {
+      clearInterval(adminRefreshInterval);
+      adminRefreshInterval = null;
+    }
+  }
+
+  async function loadAdminDashboard(silent) {
+    if (!silent) {
+      document.getElementById('admin-container').innerHTML = '<div class="admin-loading">Chargement...</div>';
+    }
     try {
       const response = await apiFetch('/api/admin/stats', { headers: { 'X-Admin-Code': adminAccessCode } });
       if (!response.ok) {
+        stopAdminAutoRefresh();
         document.getElementById('admin-dashboard').classList.add('hidden');
         return;
       }
@@ -2267,7 +2298,10 @@
       renderAdminDashboard(stats);
     } catch (err) {
       console.error('Admin stats load failed', err);
-      document.getElementById('admin-dashboard').classList.add('hidden');
+      if (!silent) {
+        stopAdminAutoRefresh();
+        document.getElementById('admin-dashboard').classList.add('hidden');
+      }
     }
   }
 
@@ -2312,6 +2346,7 @@
       adminCodeBackdrop.classList.add('hidden');
       document.getElementById('admin-dashboard').classList.remove('hidden');
       renderAdminDashboard(stats);
+      startAdminAutoRefresh();
     } catch (err) {
       adminCodeError.textContent = 'Erreur de connexion.';
     }
