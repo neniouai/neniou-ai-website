@@ -290,6 +290,19 @@
   .settings-row-label { font-size: 0.9rem; }
   .settings-row-hint { font-size: 0.76rem; color: var(--text-dim); margin-top: 3px; }
 
+  .settings-row-stacked { flex-direction: column; align-items: stretch; }
+  .custom-instructions-textarea {
+    width: 100%;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 10px 12px;
+    border-radius: 10px;
+    font-family: inherit; font-size: 0.85rem;
+    resize: vertical;
+    margin-top: 10px;
+  }
+
   .settings-select {
     background: var(--bg-input);
     border: 1px solid var(--border);
@@ -760,6 +773,16 @@
         <option value="ht">Kreyòl</option>
         <option value="en">English</option>
       </select>
+    </div>
+
+    <div class="settings-row settings-row-stacked">
+      <div>
+        <div class="settings-row-label">Instructions personnalisées</div>
+        <div class="settings-row-hint">Ex : "réponds toujours brièvement", "je suis étudiant en droit"</div>
+      </div>
+      <textarea id="custom-instructions-input" class="custom-instructions-textarea" rows="3" placeholder="Rien pour l'instant..." maxlength="1000"></textarea>
+      <button class="auth-modal-submit" id="save-custom-instructions-btn" type="button" style="margin-top:8px;">Enregistrer</button>
+      <div class="settings-row-hint" id="custom-instructions-status" style="min-height:1em;margin-top:6px;"></div>
     </div>
   </div>
 </div>
@@ -1481,6 +1504,16 @@
       };
       actions.appendChild(exportBtn);
 
+      const shareBtn = document.createElement('button');
+      shareBtn.className = 'conv-action-btn';
+      shareBtn.title = 'Partager';
+      shareBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4"/></svg>';
+      shareBtn.onclick = (e) => {
+        e.stopPropagation();
+        shareConversation(conv.id);
+      };
+      actions.appendChild(shareBtn);
+
       const renameBtn = document.createElement('button');
       renameBtn.className = 'conv-action-btn';
       renameBtn.title = 'Renommer';
@@ -1503,6 +1536,24 @@
 
       item.appendChild(actions);
       conversationListEl.appendChild(item);
+    }
+  }
+
+  async function shareConversation(conversationId) {
+    try {
+      const response = await apiFetch('/api/conversations/' + conversationId + '/share', { method: 'POST' });
+      if (!response.ok) {
+        alert("Impossible de créer le lien de partage.");
+        return;
+      }
+      const data = await response.json();
+      const shareUrl = window.location.origin + '/?shared=' + data.shareId;
+
+      await navigator.clipboard.writeText(shareUrl);
+      alert('Lien copié ! Toute personne avec ce lien peut voir cette conversation (lecture seule) :\n\n' + shareUrl);
+    } catch (err) {
+      console.error('Share failed', err);
+      alert("Impossible de créer le lien de partage.");
     }
   }
 
@@ -1863,7 +1914,47 @@
 
 
   // ===================== STARTUP =====================
+  let isViewingSharedConversation = false;
+
+  async function checkForSharedConversation() {
+    const params = new URLSearchParams(window.location.search);
+    const sharedId = params.get('shared');
+    if (!sharedId) return false;
+
+    isViewingSharedConversation = true;
+
+    try {
+      const response = await fetch('/api/shared/' + sharedId);
+      showThreadView();
+
+      if (!response.ok) {
+        addMessage("Cette conversation partagée n'est plus disponible.", 'bot');
+      } else {
+        const data = await response.json();
+        for (const entry of data.messages || []) {
+          const text = entry.parts?.[0]?.text || '';
+          addMessage(text, entry.role === 'user' ? 'user' : 'bot');
+        }
+      }
+    } catch (err) {
+      console.error('Failed to load shared conversation', err);
+      showThreadView();
+      addMessage('Erreur de chargement de la conversation partagée.', 'bot');
+    }
+
+    // Read-only mode: no input, no sidebar — just the transcript.
+    document.querySelector('.input-zone').style.display = 'none';
+    document.querySelector('.guest-limit-banner')?.classList.add('hidden');
+    const disclaimerEl = document.querySelector('.disclaimer');
+    if (disclaimerEl) disclaimerEl.textContent = 'Conversation partagée en lecture seule — via Neniou AI';
+    sidebarEl.classList.add('collapsed');
+    document.getElementById('sidebar-toggle-btn')?.classList.add('hidden');
+
+    return true;
+  }
+
   async function startApp() {
+    if (isViewingSharedConversation) return;
     const conversations = await refreshSidebar();
 
     if (conversations.length > 0) {
@@ -1873,13 +1964,17 @@
       resetThreadView();
     }
 
+    checkForAdminView();
     input.focus();
   }
   window.startApp = startApp;
 
-  refreshSidebar(); // populates the guest-mode sidebar message on first load
+  checkForSharedConversation().then((wasShared) => {
+    if (!wasShared) refreshSidebar(); // populates the guest-mode sidebar message on first load
+  });
 
   function resetToGuestView() {
+    if (isViewingSharedConversation) return;
     currentConversationId = null;
     resetThreadView();
     document.getElementById('guest-limit-banner').classList.add('hidden');
@@ -1925,10 +2020,52 @@
   const themeSelect = document.getElementById('theme-select');
   const uiLanguageSelect = document.getElementById('ui-language-select');
 
-  function openSettings() {
+  const customInstructionsInput = document.getElementById('custom-instructions-input');
+  const customInstructionsStatus = document.getElementById('custom-instructions-status');
+  const saveCustomInstructionsBtn = document.getElementById('save-custom-instructions-btn');
+
+  async function openSettings() {
     accountMenu.classList.add('hidden');
     settingsBackdrop.classList.remove('hidden');
+
+    if (isSignedIn) {
+      customInstructionsInput.disabled = true;
+      customInstructionsInput.placeholder = 'Chargement...';
+      try {
+        const response = await apiFetch('/api/account/custom-instructions');
+        if (response.ok) {
+          const data = await response.json();
+          customInstructionsInput.value = data.customInstructions || '';
+        }
+      } catch (err) {
+        console.error('Could not load custom instructions', err);
+      } finally {
+        customInstructionsInput.disabled = false;
+        customInstructionsInput.placeholder = "Rien pour l'instant...";
+      }
+    } else {
+      customInstructionsInput.value = '';
+      customInstructionsInput.disabled = true;
+      customInstructionsInput.placeholder = 'Connectez-vous pour utiliser cette option';
+    }
   }
+
+  saveCustomInstructionsBtn.addEventListener('click', async () => {
+    if (!isSignedIn) return;
+    customInstructionsStatus.textContent = 'Enregistrement...';
+    try {
+      const response = await apiFetch('/api/account/custom-instructions', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ customInstructions: customInstructionsInput.value })
+      });
+      customInstructionsStatus.textContent = response.ok ? 'Enregistré ✓' : "Échec de l'enregistrement.";
+    } catch (err) {
+      customInstructionsStatus.textContent = 'Erreur de connexion.';
+    }
+    setTimeout(() => { customInstructionsStatus.textContent = ''; }, 2500);
+  });
+
   function closeSettings() {
     settingsBackdrop.classList.add('hidden');
   }
@@ -1937,6 +2074,41 @@
   document.getElementById('menu-language').addEventListener('click', openSettings);
   settingsClose.addEventListener('click', closeSettings);
   settingsBackdrop.addEventListener('click', (e) => { if (e.target === settingsBackdrop) closeSettings(); });
+
+  async function checkForAdminView() {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('admin') !== '1') return;
+
+    try {
+      const response = await apiFetch('/api/admin/stats');
+      if (!response.ok) return; // silently ignore for non-admins — don't reveal this exists
+
+      const stats = await response.json();
+
+      const overlay = document.createElement('div');
+      overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:200;display:flex;align-items:center;justify-content:center;padding:20px;';
+      overlay.innerHTML = `
+        <div style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:16px;padding:28px;max-width:420px;width:100%;color:var(--text);font-family:inherit;">
+          <h2 style="margin:0 0 18px;font-size:1.2rem;">📊 Statistiques Neniou AI</h2>
+          <div style="display:grid;gap:10px;font-size:0.9rem;">
+            <div>Conversations totales : <strong>${stats.totalConversations}</strong></div>
+            <div>Utilisateurs uniques : <strong>${stats.uniqueUsers}</strong></div>
+            <div>Messages totaux : <strong>${stats.totalMessages}</strong></div>
+            <div>Sessions invité actives : <strong>${stats.guestSessionsActive}</strong></div>
+            <div style="margin-top:8px;padding-top:10px;border-top:1px solid var(--border);">
+              Images ce mois : <strong>${stats.images.usedThisMonth} / ${stats.images.monthlyLimit}</strong>
+              (budget $${stats.images.monthlyBudgetUSD}/mois)
+            </div>
+          </div>
+          <button id="close-admin-stats" style="margin-top:20px;background:var(--accent-teal);color:#0b0c0d;border:none;padding:10px 18px;border-radius:100px;cursor:pointer;font-family:inherit;">Fermer</button>
+        </div>
+      `;
+      document.body.appendChild(overlay);
+      document.getElementById('close-admin-stats').onclick = () => overlay.remove();
+    } catch (err) {
+      console.error('Admin stats check failed', err);
+    }
+  }
 
   document.getElementById('menu-help').addEventListener('click', () => {
     accountMenu.classList.add('hidden');

@@ -16,6 +16,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const GEMINI_MODEL = 'gemini-3.5-flash-lite';
+const GEMINI_MODEL_SMART = 'gemini-3.6-flash'; // used only for messages that look like they need real reasoning
 const PORT = process.env.PORT || 3000;
 
 if (!GEMINI_API_KEY) {
@@ -47,6 +48,16 @@ admin.initializeApp({
 const db = admin.firestore();
 const conversationsCollection = db.collection('conversations');
 const systemStateCollection = db.collection('systemState');
+const usersCollection = db.collection('users');
+
+async function getUserCustomInstructions(clientId) {
+  const doc = await usersCollection.doc(clientId).get();
+  return doc.exists ? (doc.data().customInstructions || '') : '';
+}
+
+async function setUserCustomInstructions(clientId, text) {
+  await usersCollection.doc(clientId).set({ customInstructions: text }, { merge: true });
+}
 
 // =====================================================================
 // IMAGE GENERATION BUDGET — a real per-image cost, so this needs a hard,
@@ -160,6 +171,7 @@ async function requireClientId(req, res, next) {
   try {
     const decoded = await admin.auth().verifyIdToken(token);
     req.clientId = decoded.uid; // the Firebase Auth UID uniquely and durably identifies this Google account
+    req.userEmail = decoded.email || '';
   } catch (error) {
     console.error('❌ Token verification failed:', error.message || error);
     return res.status(401).json({ error: 'Invalid or expired session, please sign in again.' });
@@ -192,6 +204,52 @@ app.use('/api/', apiLimiter);
 // =====================================================================
 // CONVERSATION ROUTES
 // =====================================================================
+// =====================================================================
+// ADMIN STATS — a minimal usage dashboard, restricted to allow-listed
+// admin emails (set ADMIN_EMAILS in your .env, comma-separated).
+// =====================================================================
+const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || '').split(',').map((e) => e.trim().toLowerCase()).filter(Boolean);
+
+function requireAdmin(req, res, next) {
+  if (!req.userEmail || !ADMIN_EMAILS.includes(req.userEmail.toLowerCase())) {
+    return res.status(403).json({ error: 'Not authorized' });
+  }
+  next();
+}
+
+app.get('/api/admin/stats', requireClientId, requireAdmin, async (req, res) => {
+  try {
+    const conversationsSnapshot = await conversationsCollection.get();
+    const uniqueUsers = new Set();
+    let totalMessages = 0;
+
+    conversationsSnapshot.forEach((doc) => {
+      const data = doc.data();
+      uniqueUsers.add(data.clientId);
+      totalMessages += (data.messages || []).length;
+    });
+
+    const imageUsageDoc = await systemStateCollection.doc('imageUsage').get();
+    const imageUsage = imageUsageDoc.exists ? imageUsageDoc.data() : { monthKey: '', count: 0 };
+    const currentMonthImages = imageUsage.monthKey === currentMonthKey() ? imageUsage.count : 0;
+
+    res.json({
+      totalConversations: conversationsSnapshot.size,
+      uniqueUsers: uniqueUsers.size,
+      totalMessages,
+      guestSessionsActive: guestSessions.size,
+      images: {
+        usedThisMonth: currentMonthImages,
+        monthlyLimit: MAX_IMAGES_PER_MONTH,
+        monthlyBudgetUSD: IMAGE_MONTHLY_BUDGET_USD
+      }
+    });
+  } catch (error) {
+    console.error('❌ Admin stats error:', error.message || error);
+    res.status(500).json({ error: 'Could not load stats.' });
+  }
+});
+
 app.get('/api/conversations', requireClientId, async (req, res) => {
   try {
     const summaries = await listConversationsForClient(req.clientId);
@@ -261,6 +319,67 @@ app.delete('/api/conversations/:id', requireClientId, async (req, res) => {
   }
 });
 
+// =====================================================================
+// SHARE CONVERSATION — generates a public, read-only link that anyone
+// can open without an account. Sharing is opt-in and can be revoked.
+// =====================================================================
+app.post('/api/conversations/:id/share', requireClientId, async (req, res) => {
+  try {
+    const conversation = await getConversationForClient(req.clientId, req.params.id);
+    if (!conversation) {
+      return res.status(404).json({ error: 'Conversation not found' });
+    }
+
+    const shareId = conversation.shareId || crypto.randomBytes(12).toString('hex');
+    await saveConversation(req.params.id, { shareId, isShared: true });
+    res.json({ shareId });
+  } catch (error) {
+    console.error('❌ Share conversation error:', error.message || error);
+    res.status(500).json({ error: 'Could not share conversation.' });
+  }
+});
+
+app.delete('/api/conversations/:id/share', requireClientId, async (req, res) => {
+  try {
+    const conversation = await getConversationForClient(req.clientId, req.params.id);
+    if (!conversation) {
+      return res.status(404).json({ error: 'Conversation not found' });
+    }
+    await saveConversation(req.params.id, { isShared: false });
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('❌ Unshare conversation error:', error.message || error);
+    res.status(500).json({ error: 'Could not unshare conversation.' });
+  }
+});
+
+// Public — no auth required. Only returns data if the conversation was
+// explicitly marked as shared.
+app.get('/api/shared/:shareId', async (req, res) => {
+  try {
+    const snapshot = await conversationsCollection
+      .where('shareId', '==', req.params.shareId)
+      .where('isShared', '==', true)
+      .limit(1)
+      .get();
+
+    if (snapshot.empty) {
+      return res.status(404).json({ error: 'This shared conversation is not available.' });
+    }
+
+    const data = snapshot.docs[0].data();
+    const lightMessages = (data.messages || []).map((m) => ({
+      role: m.role,
+      parts: m.parts.map((p) => (p.inline_data ? { text: '[Image]' } : p))
+    }));
+
+    res.json({ title: data.title, messages: lightMessages });
+  } catch (error) {
+    console.error('❌ Get shared conversation error:', error.message || error);
+    res.status(500).json({ error: 'Could not load shared conversation.' });
+  }
+});
+
 // Wipes every conversation belonging to this account — called right before
 // the Firebase Auth account itself is deleted, so no orphaned data is left.
 app.delete('/api/account/data', requireClientId, async (req, res) => {
@@ -277,11 +396,43 @@ app.delete('/api/account/data', requireClientId, async (req, res) => {
 });
 
 // =====================================================================
+// CUSTOM INSTRUCTIONS — personal preferences the person can set once,
+// applied to every conversation (e.g. "always answer briefly").
+// =====================================================================
+app.get('/api/account/custom-instructions', requireClientId, async (req, res) => {
+  try {
+    const customInstructions = await getUserCustomInstructions(req.clientId);
+    res.json({ customInstructions });
+  } catch (error) {
+    console.error('❌ Get custom instructions error:', error.message || error);
+    res.status(500).json({ error: 'Could not load preferences.' });
+  }
+});
+
+app.put('/api/account/custom-instructions', requireClientId, async (req, res) => {
+  try {
+    const { customInstructions } = req.body;
+    if (typeof customInstructions !== 'string') {
+      return res.status(400).json({ error: 'customInstructions must be a string' });
+    }
+    await setUserCustomInstructions(req.clientId, customInstructions.slice(0, 1000));
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('❌ Save custom instructions error:', error.message || error);
+    res.status(500).json({ error: 'Could not save preferences.' });
+  }
+});
+
+// =====================================================================
 // GEMINI CHAT LOGIC
 // =====================================================================
-function buildSystemPrompt() {
+function buildSystemPrompt(customInstructions) {
   const now = new Date();
   const dateStr = now.toLocaleDateString('fr-FR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', timeZone: 'America/Port-au-Prince' });
+
+  const customBlock = customInstructions && customInstructions.trim()
+    ? `\n\nPERSONAL PREFERENCES FROM THIS USER (follow these as long as they don't conflict with the strict rules above — the strict rules always win over these):\n${customInstructions.trim().slice(0, 1000)}`
+    : '';
 
   return `You are "Neniou AI", a virtual assistant created by Hanania.
 
@@ -297,7 +448,8 @@ STRICT RULES:
 7. You may use light Markdown formatting when it genuinely helps readability: **bold** for key terms, numbered or bulleted lists for steps or multiple items, and fenced code blocks (\`\`\`) for any code or command. Don't overuse formatting for short conversational replies.
 8. If the person sends an image or a PDF document, look at it carefully and respond to what they asked about it (summarize, explain, answer questions about it, or describe it helpfully if they didn't ask a specific question).
 9. Respect the person's privacy: never ask for personal information (full name, phone number, address, ID numbers, etc.) unless it's clearly necessary to answer their specific question, and never repeat sensitive personal details back unnecessarily. If asked how their data is handled, explain plainly that conversations are stored only to keep context for that person, are not sold or shared with advertisers, and are used only to generate replies.
-10. When writing in Haitian Creole, use correct standard orthography, including apostrophes for elided pronouns and markers. Common correct forms: "m ap" or "m'ap", "w ap" or "w'ap", "l ap" or "l'ap", "n ap" or "n'ap", "yo ap", "pa gen", "se yon", "genyen". Do not drop apostrophes where they're grammatically expected, and do not insert them where they don't belong (e.g. "li pa" not "li p'a", "ou vle" not "ou v'le"). Prioritize natural, correctly spelled Kreyòl over literal transcription of casual speech.`;
+10. When writing in Haitian Creole, use correct standard orthography, including apostrophes for elided pronouns and markers. Common correct forms: "m ap" or "m'ap", "w ap" or "w'ap", "l ap" or "l'ap", "n ap" or "n'ap", "yo ap", "pa gen", "se yon", "genyen". Do not drop apostrophes where they're grammatically expected, and do not insert them where they don't belong (e.g. "li pa" not "li p'a", "ou vle" not "ou v'le"). Prioritize natural, correctly spelled Kreyòl over literal transcription of casual speech.
+11. For any math problem or calculation (arithmetic, percentages, equations, unit conversions, word problems, etc.), work through it step by step internally before answering — compute intermediate values explicitly, double-check each step, then give the final answer clearly. Never state a numeric result you haven't actually calculated. If a calculation has multiple steps, show the key steps briefly in the answer so the person can follow and verify the logic, not just the final number.${customBlock}`;
 }
 
 const MAX_HISTORY_MESSAGES = 30;
@@ -405,16 +557,33 @@ async function askGemini(contents, attempt = 1) {
 
 // Streams text chunks from Gemini as they're generated, using Gemini's
 // own Server-Sent Events output (alt=sse). Yields plain text pieces.
-async function* streamGeminiChunks(contents, attempt = 1) {
+// A light heuristic — not perfect, but catches the common cases where the
+// bigger model genuinely helps: code, math, and longer/multi-part questions.
+// Everything else stays on the cheap/fast model to protect free-tier quota.
+function pickModelFor(latestUserText) {
+  if (!latestUserText) return GEMINI_MODEL;
+
+  const text = latestUserText.toLowerCase();
+  const looksLikeCode = /```|function |class |const |import |def |select .* from|<\/?[a-z]+>/i.test(text);
+  const looksLikeMath = (text.match(/[0-9]/g) || []).length >= 4 && /[+\-*/=%^]|équation|equation|calcul|pourcentage|percentage|kalkile/.test(text);
+  const isLongOrComplex = text.length > 350 || (text.match(/\?/g) || []).length >= 2;
+
+  return (looksLikeCode || looksLikeMath || isLongOrComplex) ? GEMINI_MODEL_SMART : GEMINI_MODEL;
+}
+
+async function* streamGeminiChunks(contents, attempt = 1, customInstructions = '') {
   await waitForTurn();
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:streamGenerateContent?alt=sse&key=${GEMINI_API_KEY}`;
+  const latestUserText = [...contents].reverse().find((m) => m.role === 'user')?.parts?.find((p) => p.text)?.text || '';
+  const modelForThisTurn = pickModelFor(latestUserText);
+
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelForThisTurn}:streamGenerateContent?alt=sse&key=${GEMINI_API_KEY}`;
 
   const response = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      system_instruction: { parts: [{ text: buildSystemPrompt() }] },
+      system_instruction: { parts: [{ text: buildSystemPrompt(customInstructions) }] },
       contents
     })
   });
@@ -426,7 +595,7 @@ async function* streamGeminiChunks(contents, attempt = 1) {
       const waitMs = 15000 * attempt;
       console.log(`⏳ Rate limit hit (stream), waiting ${waitMs / 1000}s then retrying (${attempt}/2)...`);
       await sleep(waitMs);
-      yield* streamGeminiChunks(contents, attempt + 1);
+      yield* streamGeminiChunks(contents, attempt + 1, customInstructions);
       return;
     }
     throw new Error(`Gemini stream error (${response.status}): ${errText.slice(0, 200)}`);
@@ -752,6 +921,8 @@ app.post('/api/chat', requireClientId, async (req, res) => {
     const messages = conversation.messages || [];
     messages.push({ role: 'user', parts: userParts });
 
+    const customInstructions = await getUserCustomInstructions(req.clientId).catch(() => '');
+
     // ---- Stream the reply back as Server-Sent Events ----
     res.set({
       'Content-Type': 'text/event-stream',
@@ -765,7 +936,7 @@ app.post('/api/chat', requireClientId, async (req, res) => {
 
     let fullReply = '';
     try {
-      for await (const chunk of streamGeminiChunks(messages)) {
+      for await (const chunk of streamGeminiChunks(messages, 1, customInstructions)) {
         if (clientDisconnected) break; // person pressed "stop" — save what we have and quit early
         fullReply += chunk;
         res.write(`data: ${JSON.stringify({ text: chunk })}\n\n`);
@@ -924,6 +1095,8 @@ app.post('/api/chat/edit', requireClientId, async (req, res) => {
     const truncated = messages.slice(0, messageIndex);
     truncated.push({ role: 'user', parts: [{ text: newText.trim().slice(0, 2000) }] });
 
+    const customInstructions = await getUserCustomInstructions(req.clientId).catch(() => '');
+
     res.set({ 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
     res.flushHeaders?.();
 
@@ -932,7 +1105,7 @@ app.post('/api/chat/edit', requireClientId, async (req, res) => {
 
     let fullReply = '';
     try {
-      for await (const chunk of streamGeminiChunks(truncated)) {
+      for await (const chunk of streamGeminiChunks(truncated, 1, customInstructions)) {
         if (clientDisconnected) break;
         fullReply += chunk;
         res.write(`data: ${JSON.stringify({ text: chunk })}\n\n`);
@@ -1055,6 +1228,8 @@ app.post('/api/chat/regenerate', requireClientId, async (req, res) => {
     }
     messages.pop(); // drop the previous answer; the last entry is now the user's message again
 
+    const customInstructions = await getUserCustomInstructions(req.clientId).catch(() => '');
+
     res.set({ 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
     res.flushHeaders?.();
 
@@ -1063,7 +1238,7 @@ app.post('/api/chat/regenerate', requireClientId, async (req, res) => {
 
     let fullReply = '';
     try {
-      for await (const chunk of streamGeminiChunks(messages)) {
+      for await (const chunk of streamGeminiChunks(messages, 1, customInstructions)) {
         if (clientDisconnected) break;
         fullReply += chunk;
         res.write(`data: ${JSON.stringify({ text: chunk })}\n\n`);
