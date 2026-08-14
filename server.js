@@ -206,13 +206,21 @@ app.use('/api/', apiLimiter);
 // =====================================================================
 // =====================================================================
 // ADMIN STATS — a minimal usage dashboard, restricted to allow-listed
-// admin emails (set ADMIN_EMAILS in your .env, comma-separated).
+// admin emails (set ADMIN_EMAILS in your .env, comma-separated), PLUS a
+// second-factor access code (set ADMIN_ACCESS_CODE in your .env — falls
+// back to a default here so it works immediately, but you should override
+// it in Render's environment variables for real security).
 // =====================================================================
 const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || '').split(',').map((e) => e.trim().toLowerCase()).filter(Boolean);
+const ADMIN_ACCESS_CODE = process.env.ADMIN_ACCESS_CODE || 'cx197451';
 
 function requireAdmin(req, res, next) {
   if (!req.userEmail || !ADMIN_EMAILS.includes(req.userEmail.toLowerCase())) {
     return res.status(403).json({ error: 'Not authorized' });
+  }
+  const providedCode = req.headers['x-admin-code'] || '';
+  if (providedCode !== ADMIN_ACCESS_CODE) {
+    return res.status(401).json({ error: 'Code incorrect' });
   }
   next();
 }
@@ -222,22 +230,44 @@ app.get('/api/admin/stats', requireClientId, requireAdmin, async (req, res) => {
     const conversationsSnapshot = await conversationsCollection.get();
     const uniqueUsers = new Set();
     let totalMessages = 0;
+    const allConversations = [];
 
     conversationsSnapshot.forEach((doc) => {
       const data = doc.data();
       uniqueUsers.add(data.clientId);
       totalMessages += (data.messages || []).length;
+      allConversations.push({ title: data.title || 'New chat', updatedAt: data.updatedAt || null });
     });
 
     const imageUsageDoc = await systemStateCollection.doc('imageUsage').get();
     const imageUsage = imageUsageDoc.exists ? imageUsageDoc.data() : { monthKey: '', count: 0 };
     const currentMonthImages = imageUsage.monthKey === currentMonthKey() ? imageUsage.count : 0;
 
+    const today = todayKey();
+    let todayMessages = 0;
+    let activeUsersToday = 0;
+    for (const entry of usageByClient.values()) {
+      if (entry.dayKey === today) {
+        todayMessages += entry.count;
+        activeUsersToday += 1;
+      }
+    }
+
+    const recentConversations = allConversations
+      .filter((c) => c.updatedAt)
+      .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt))
+      .slice(0, 8);
+
     res.json({
       totalConversations: conversationsSnapshot.size,
       uniqueUsers: uniqueUsers.size,
       totalMessages,
       guestSessionsActive: guestSessions.size,
+      todayMessages,
+      activeUsersToday,
+      dailyMessageLimit: DAILY_MESSAGE_LIMIT,
+      guestMessageLimit: GUEST_MESSAGE_LIMIT,
+      recentConversations,
       images: {
         usedThisMonth: currentMonthImages,
         monthlyLimit: MAX_IMAGES_PER_MONTH,

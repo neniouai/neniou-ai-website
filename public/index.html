@@ -515,6 +515,75 @@
   }
   .suggested-prompt:hover { background: var(--bg-hover); color: var(--text); }
 
+  /* ================= ADMIN DASHBOARD ================= */
+  .admin-dashboard {
+    position: fixed; inset: 0;
+    background: var(--bg);
+    z-index: 200;
+    overflow-y: auto;
+  }
+  .admin-dashboard.hidden { display: none; }
+
+  .admin-container { max-width: 1000px; margin: 0 auto; padding: 32px 24px 60px; }
+
+  .admin-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 32px; flex-wrap: wrap; gap: 14px;
+  }
+  .admin-header-left { display: flex; align-items: center; gap: 12px; }
+  .admin-header-left img { width: 28px; height: 28px; }
+  .admin-header h1 {
+    font-family: 'Google Sans', 'Inter', sans-serif;
+    font-size: 1.4rem; font-weight: 500; margin: 0;
+    background: linear-gradient(100deg, var(--accent-blue) 10%, var(--accent-teal) 55%, var(--accent-green) 90%);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .admin-header-actions { display: flex; gap: 10px; }
+  .admin-btn {
+    background: var(--bg-elevated); border: 1px solid var(--border); color: var(--text);
+    padding: 9px 16px; border-radius: 100px; font-size: 0.85rem; cursor: pointer; font-family: inherit;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .admin-btn:hover { background: var(--bg-hover); }
+  .admin-btn svg { width: 15px; height: 15px; }
+
+  .admin-section-title {
+    font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.08em;
+    color: var(--text-dim); margin: 32px 0 14px;
+  }
+  .admin-section-title:first-of-type { margin-top: 0; }
+
+  .admin-stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 14px; }
+  .admin-stat-card {
+    background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 14px;
+    padding: 20px;
+  }
+  .admin-stat-card .stat-value {
+    font-family: 'Google Sans', sans-serif; font-size: 1.9rem; font-weight: 500;
+    color: var(--accent-teal); line-height: 1.1; margin-bottom: 6px;
+  }
+  .admin-stat-card .stat-label { font-size: 0.82rem; color: var(--text-dim); }
+
+  .admin-progress-card {
+    background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 14px; padding: 20px;
+  }
+  .admin-progress-top { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 10px; font-size: 0.88rem; }
+  .admin-progress-track { height: 8px; background: var(--bg-input); border-radius: 100px; overflow: hidden; }
+  .admin-progress-fill { height: 100%; background: linear-gradient(90deg, var(--accent-blue), var(--accent-teal)); border-radius: 100px; transition: width .3s; }
+  .admin-progress-hint { font-size: 0.76rem; color: var(--text-dim); margin-top: 8px; }
+
+  .admin-activity-list { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
+  .admin-activity-row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 13px 18px; border-bottom: 1px solid var(--border); font-size: 0.86rem;
+  }
+  .admin-activity-row:last-child { border-bottom: none; }
+  .admin-activity-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 70%; }
+  .admin-activity-time { color: var(--text-dim); font-size: 0.78rem; flex-shrink: 0; }
+
+  .admin-empty { text-align: center; color: var(--text-dim); font-size: 0.85rem; padding: 30px; }
+  .admin-loading { text-align: center; color: var(--text-dim); padding: 60px 20px; }
+
   .thread-wrap { flex: 1; overflow-y: auto; display: flex; justify-content: center; }
   .thread-wrap.hidden { display: none; }
 
@@ -787,6 +856,28 @@
   </div>
 </div>
 
+<div class="auth-modal-backdrop hidden" id="admin-code-backdrop">
+  <div class="auth-modal-card">
+    <button class="auth-modal-close" id="admin-code-close" type="button">✕</button>
+    <h2 class="auth-modal-title">Accès tableau de bord</h2>
+    <p class="auth-modal-subtitle" style="text-align:center;color:var(--text-dim);font-size:0.85rem;margin:-8px 0 20px;">Entrez le code de confirmation</p>
+
+    <form id="admin-code-form">
+      <div class="auth-field">
+        <input id="admin-code-input" type="password" placeholder="Code" autocomplete="off" required />
+      </div>
+      <div class="auth-modal-error" id="admin-code-error"></div>
+      <button class="auth-modal-submit" type="submit">Confirmer</button>
+    </form>
+  </div>
+</div>
+
+<div class="admin-dashboard hidden" id="admin-dashboard">
+  <div class="admin-container" id="admin-container">
+    <div class="admin-loading">Chargement...</div>
+  </div>
+</div>
+
 <div class="app visible" id="app">
 
   <aside class="sidebar collapsed" id="sidebar">
@@ -824,6 +915,10 @@
         <button class="account-menu-item" id="menu-help" type="button">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3M12 17h.01"/></svg>
           Aide
+        </button>
+        <button class="account-menu-item" id="menu-admin-dashboard" type="button">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>
+          Tableau de bord
         </button>
         <div class="account-menu-divider"></div>
         <button class="account-menu-item account-menu-item-danger" id="menu-delete-account" type="button">
@@ -2075,40 +2170,161 @@
   settingsClose.addEventListener('click', closeSettings);
   settingsBackdrop.addEventListener('click', (e) => { if (e.target === settingsBackdrop) closeSettings(); });
 
+  function formatRelativeTime(isoString) {
+    if (!isoString) return '';
+    const diffMs = Date.now() - new Date(isoString).getTime();
+    const mins = Math.floor(diffMs / 60000);
+    if (mins < 1) return "à l'instant";
+    if (mins < 60) return `il y a ${mins} min`;
+    const hours = Math.floor(mins / 60);
+    if (hours < 24) return `il y a ${hours} h`;
+    const days = Math.floor(hours / 24);
+    return `il y a ${days} j`;
+  }
+
+  function renderAdminDashboard(stats) {
+    const imagePct = stats.images.monthlyLimit > 0
+      ? Math.min(100, Math.round((stats.images.usedThisMonth / stats.images.monthlyLimit) * 100))
+      : 0;
+
+    const activityRows = stats.recentConversations.length > 0
+      ? stats.recentConversations.map((c) => `
+          <div class="admin-activity-row">
+            <span class="admin-activity-title">${(c.title || 'New chat').replace(/</g, '&lt;')}</span>
+            <span class="admin-activity-time">${formatRelativeTime(c.updatedAt)}</span>
+          </div>
+        `).join('')
+      : '<div class="admin-empty">Aucune activité récente</div>';
+
+    document.getElementById('admin-container').innerHTML = `
+      <div class="admin-header">
+        <div class="admin-header-left">
+          <img src="/assets/icon.svg" alt="">
+          <h1>Tableau de bord</h1>
+        </div>
+        <div class="admin-header-actions">
+          <button class="admin-btn" id="admin-refresh-btn" type="button">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 11-3-6.7"/><path d="M21 3v6h-6"/></svg>
+            Actualiser
+          </button>
+          <button class="admin-btn" id="admin-close-btn" type="button">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+            Fermer
+          </button>
+        </div>
+      </div>
+
+      <div class="admin-section-title">Vue d'ensemble</div>
+      <div class="admin-stat-grid">
+        <div class="admin-stat-card"><div class="stat-value">${stats.totalConversations}</div><div class="stat-label">Conversations totales</div></div>
+        <div class="admin-stat-card"><div class="stat-value">${stats.uniqueUsers}</div><div class="stat-label">Comptes utilisateurs</div></div>
+        <div class="admin-stat-card"><div class="stat-value">${stats.totalMessages}</div><div class="stat-label">Messages totaux</div></div>
+        <div class="admin-stat-card"><div class="stat-value">${stats.guestSessionsActive}</div><div class="stat-label">Sessions invité actives</div></div>
+      </div>
+
+      <div class="admin-section-title">Aujourd'hui</div>
+      <div class="admin-stat-grid">
+        <div class="admin-stat-card"><div class="stat-value">${stats.todayMessages}</div><div class="stat-label">Messages envoyés aujourd'hui</div></div>
+        <div class="admin-stat-card"><div class="stat-value">${stats.activeUsersToday}</div><div class="stat-label">Utilisateurs actifs aujourd'hui</div></div>
+        <div class="admin-stat-card"><div class="stat-value">${stats.dailyMessageLimit}</div><div class="stat-label">Limite/jour (compte)</div></div>
+        <div class="admin-stat-card"><div class="stat-value">${stats.guestMessageLimit}</div><div class="stat-label">Limite/jour (invité)</div></div>
+      </div>
+
+      <div class="admin-section-title">Budget images</div>
+      <div class="admin-progress-card">
+        <div class="admin-progress-top">
+          <span>${stats.images.usedThisMonth} / ${stats.images.monthlyLimit} images utilisées</span>
+          <span>${imagePct}%</span>
+        </div>
+        <div class="admin-progress-track"><div class="admin-progress-fill" style="width:${imagePct}%"></div></div>
+        <div class="admin-progress-hint">Budget mensuel : $${stats.images.monthlyBudgetUSD} — se réinitialise chaque mois</div>
+      </div>
+
+      <div class="admin-section-title">Activité récente</div>
+      <div class="admin-activity-list">${activityRows}</div>
+    `;
+
+    document.getElementById('admin-close-btn').onclick = () => {
+      document.getElementById('admin-dashboard').classList.add('hidden');
+      const url = new URL(window.location);
+      url.searchParams.delete('admin');
+      window.history.replaceState({}, '', url);
+    };
+    document.getElementById('admin-refresh-btn').onclick = () => loadAdminDashboard();
+  }
+
+  let adminAccessCode = '';
+
+  async function loadAdminDashboard() {
+    document.getElementById('admin-container').innerHTML = '<div class="admin-loading">Chargement...</div>';
+    try {
+      const response = await apiFetch('/api/admin/stats', { headers: { 'X-Admin-Code': adminAccessCode } });
+      if (!response.ok) {
+        document.getElementById('admin-dashboard').classList.add('hidden');
+        return;
+      }
+      const stats = await response.json();
+      renderAdminDashboard(stats);
+    } catch (err) {
+      console.error('Admin stats load failed', err);
+      document.getElementById('admin-dashboard').classList.add('hidden');
+    }
+  }
+
+  const adminCodeBackdrop = document.getElementById('admin-code-backdrop');
+  const adminCodeForm = document.getElementById('admin-code-form');
+  const adminCodeInput = document.getElementById('admin-code-input');
+  const adminCodeError = document.getElementById('admin-code-error');
+
+  function openAdminCodeModal() {
+    accountMenu.classList.add('hidden');
+    adminCodeError.textContent = '';
+    adminCodeInput.value = '';
+    adminCodeBackdrop.classList.remove('hidden');
+    adminCodeInput.focus();
+  }
+
+  document.getElementById('admin-code-close').addEventListener('click', () => {
+    adminCodeBackdrop.classList.add('hidden');
+  });
+  adminCodeBackdrop.addEventListener('click', (e) => {
+    if (e.target === adminCodeBackdrop) adminCodeBackdrop.classList.add('hidden');
+  });
+
+  adminCodeForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    if (!isSignedIn) {
+      adminCodeError.textContent = 'Connectez-vous avec le compte admin d\'abord.';
+      return;
+    }
+
+    const codeAttempt = adminCodeInput.value.trim();
+    adminCodeError.textContent = '';
+
+    try {
+      const response = await apiFetch('/api/admin/stats', { headers: { 'X-Admin-Code': codeAttempt } });
+      if (!response.ok) {
+        adminCodeError.textContent = 'Code incorrect ou compte non autorisé.';
+        return;
+      }
+      adminAccessCode = codeAttempt;
+      const stats = await response.json();
+      adminCodeBackdrop.classList.add('hidden');
+      document.getElementById('admin-dashboard').classList.remove('hidden');
+      renderAdminDashboard(stats);
+    } catch (err) {
+      adminCodeError.textContent = 'Erreur de connexion.';
+    }
+  });
+
+  document.getElementById('menu-admin-dashboard').addEventListener('click', openAdminCodeModal);
+
   async function checkForAdminView() {
     const params = new URLSearchParams(window.location.search);
     if (params.get('admin') !== '1') return;
-
-    try {
-      const response = await apiFetch('/api/admin/stats');
-      if (!response.ok) return; // silently ignore for non-admins — don't reveal this exists
-
-      const stats = await response.json();
-
-      const overlay = document.createElement('div');
-      overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:200;display:flex;align-items:center;justify-content:center;padding:20px;';
-      overlay.innerHTML = `
-        <div style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:16px;padding:28px;max-width:420px;width:100%;color:var(--text);font-family:inherit;">
-          <h2 style="margin:0 0 18px;font-size:1.2rem;">📊 Statistiques Neniou AI</h2>
-          <div style="display:grid;gap:10px;font-size:0.9rem;">
-            <div>Conversations totales : <strong>${stats.totalConversations}</strong></div>
-            <div>Utilisateurs uniques : <strong>${stats.uniqueUsers}</strong></div>
-            <div>Messages totaux : <strong>${stats.totalMessages}</strong></div>
-            <div>Sessions invité actives : <strong>${stats.guestSessionsActive}</strong></div>
-            <div style="margin-top:8px;padding-top:10px;border-top:1px solid var(--border);">
-              Images ce mois : <strong>${stats.images.usedThisMonth} / ${stats.images.monthlyLimit}</strong>
-              (budget $${stats.images.monthlyBudgetUSD}/mois)
-            </div>
-          </div>
-          <button id="close-admin-stats" style="margin-top:20px;background:var(--accent-teal);color:#0b0c0d;border:none;padding:10px 18px;border-radius:100px;cursor:pointer;font-family:inherit;">Fermer</button>
-        </div>
-      `;
-      document.body.appendChild(overlay);
-      document.getElementById('close-admin-stats').onclick = () => overlay.remove();
-    } catch (err) {
-      console.error('Admin stats check failed', err);
-    }
+    openAdminCodeModal();
   }
+
 
   document.getElementById('menu-help').addEventListener('click', () => {
     accountMenu.classList.add('hidden');
