@@ -1,18 +1,20 @@
-<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+<svg width="32" height="32" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
   <defs>
-    <radialGradient id="orbGrad" cx="38%" cy="32%" r="75%">
-      <stop offset="0%" stop-color="#7fc4ff"/>
-      <stop offset="35%" stop-color="#4a8fe7"/>
-      <stop offset="70%" stop-color="#2fbf9f"/>
-      <stop offset="100%" stop-color="#249e73"/>
-    </radialGradient>
-    <radialGradient id="orbHighlight" cx="50%" cy="50%" r="50%">
-      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.55"/>
-      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
-    </radialGradient>
+    <!-- Degrade koulè Neniou AI (Cyan al nan Ble ak Vyolèt) -->
+    <linearGradient id="neniouSpark" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00F2FE" />
+      <stop offset="50%" stop-color="#4FACFE" />
+      <stop offset="100%" stop-color="#7F00FF" />
+    </linearGradient>
+    <linearGradient id="accentSpark" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#00C6FF" />
+      <stop offset="100%" stop-color="#00F2FE" />
+    </linearGradient>
   </defs>
 
-  <!-- Simple glowing orb mark — minimal, premium, no star/sparkle, no bubble -->
-  <circle cx="32" cy="32" r="26" fill="url(#orbGrad)"/>
-  <ellipse cx="24" cy="22" rx="14" ry="10" fill="url(#orbHighlight)"/>
+  <!-- Prensipal Ti Sparkle Curved (4 Pwent) -->
+  <path d="M45 5 C45 28 62 45 85 45 C62 45 45 62 45 85 C45 62 28 45 5 45 C28 45 45 28 45 5 Z" fill="url(#neniouSpark)" />
+
+  <!-- Ti Etwal Akzan sou kote a (Accent Sparkle) -->
+  <path d="M78 12 C78 20 84 26 92 26 C84 26 78 32 78 40 C78 32 72 26 64 26 C72 26 78 20 78 12 Z" fill="url(#accentSpark)" opacity="0.9" />
 </svg>
