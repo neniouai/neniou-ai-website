@@ -518,83 +518,118 @@
   /* ================= ADMIN DASHBOARD ================= */
   .admin-dashboard {
     position: fixed; inset: 0;
-    background: var(--bg);
+    background:
+      radial-gradient(circle at 15% -10%, rgba(74,143,231,0.12), transparent 40%),
+      radial-gradient(circle at 85% 0%, rgba(52,201,138,0.10), transparent 35%),
+      var(--bg);
     z-index: 200;
     overflow-y: auto;
   }
   .admin-dashboard.hidden { display: none; }
 
-  .admin-container { max-width: 1000px; margin: 0 auto; padding: 32px 24px 60px; }
+  .admin-container { max-width: 1140px; margin: 0 auto; padding: 32px 24px 60px; }
 
-  .admin-header {
-    display: flex; align-items: center; justify-content: space-between;
-    margin-bottom: 32px; flex-wrap: wrap; gap: 14px;
+  .admin-banner {
+    background: linear-gradient(120deg, rgba(74,143,231,0.16), rgba(47,191,159,0.14) 55%, rgba(52,201,138,0.12));
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 24px 28px;
+    margin-bottom: 28px;
+    display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px;
   }
-  .admin-header-left { display: flex; align-items: center; gap: 12px; }
-  .admin-header-left img { width: 28px; height: 28px; }
-  .admin-header h1 {
+  .admin-banner-left { display: flex; align-items: center; gap: 14px; }
+  .admin-banner-left img { width: 38px; height: 38px; }
+  .admin-banner h1 {
     font-family: 'Google Sans', 'Inter', sans-serif;
-    font-size: 1.4rem; font-weight: 500; margin: 0;
-    background: linear-gradient(100deg, var(--accent-blue) 10%, var(--accent-teal) 55%, var(--accent-green) 90%);
-    -webkit-background-clip: text; background-clip: text; color: transparent;
+    font-size: 1.5rem; font-weight: 500; margin: 0 0 4px;
+    color: var(--text);
   }
+  .admin-banner-sub { font-size: 0.82rem; color: var(--text-dim); display: flex; align-items: center; gap: 6px; }
+  .admin-banner-sub::before {
+    content: ''; width: 7px; height: 7px; border-radius: 50%;
+    background: var(--accent-teal); animation: adminLivePulse 1.6s infinite;
+    box-shadow: 0 0 0 3px rgba(47,191,159,0.2);
+  }
+
   .admin-header-actions { display: flex; gap: 10px; }
   .admin-btn {
     background: var(--bg-elevated); border: 1px solid var(--border); color: var(--text);
-    padding: 9px 16px; border-radius: 100px; font-size: 0.85rem; cursor: pointer; font-family: inherit;
-    display: flex; align-items: center; gap: 6px;
+    padding: 10px 18px; border-radius: 100px; font-size: 0.85rem; cursor: pointer; font-family: inherit;
+    display: flex; align-items: center; gap: 7px;
+    transition: background .15s, transform .1s;
   }
-  .admin-btn:hover { background: var(--bg-hover); }
+  .admin-btn:hover { background: var(--bg-hover); transform: translateY(-1px); }
+  .admin-btn:active { transform: translateY(0); }
+  .admin-btn.primary { background: var(--accent-teal); color: #0b0c0d; border-color: transparent; }
+  .admin-btn.primary:hover { background: #38d4a8; }
   .admin-btn svg { width: 15px; height: 15px; }
 
+  .admin-grid-2col { display: grid; grid-template-columns: 1.6fr 1fr; gap: 24px; align-items: start; }
+  @media (max-width: 820px) { .admin-grid-2col { grid-template-columns: 1fr; } }
+
   .admin-section-title {
-    font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.08em;
-    color: var(--text-dim); margin: 32px 0 14px;
+    font-size: 0.76rem; text-transform: uppercase; letter-spacing: 0.09em;
+    color: var(--text-dim); margin: 30px 0 14px; font-weight: 600;
   }
   .admin-section-title:first-of-type { margin-top: 0; }
 
-  .admin-live-label {
-    font-size: 0.76rem; color: var(--accent-teal);
-    margin: -20px 0 24px; display: flex; align-items: center; gap: 6px;
-  }
-  .admin-live-label::before {
-    content: ''; width: 6px; height: 6px; border-radius: 50%;
-    background: var(--accent-teal); animation: adminLivePulse 1.6s infinite;
-  }
   @keyframes adminLivePulse {
     0%, 100% { opacity: 1; } 50% { opacity: 0.3; }
   }
 
-  .admin-stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 14px; }
+  .admin-stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; }
   .admin-stat-card {
-    background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 14px;
-    padding: 20px;
+    background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 16px;
+    padding: 18px 20px;
+    display: flex; align-items: flex-start; gap: 14px;
+    transition: transform .15s, border-color .15s;
   }
+  .admin-stat-card:hover { transform: translateY(-2px); border-color: #454850; }
+  .admin-stat-icon {
+    width: 42px; height: 42px; border-radius: 12px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .admin-stat-icon svg { width: 21px; height: 21px; }
+  .admin-stat-icon.c-blue   { background: rgba(74,143,231,0.16);  color: var(--accent-blue); }
+  .admin-stat-icon.c-teal   { background: rgba(47,191,159,0.16);  color: var(--accent-teal); }
+  .admin-stat-icon.c-green  { background: rgba(52,201,138,0.16);  color: var(--accent-green); }
+  .admin-stat-icon.c-gold   { background: rgba(240,180,80,0.16);  color: #f0b450; }
   .admin-stat-card .stat-value {
-    font-family: 'Google Sans', sans-serif; font-size: 1.9rem; font-weight: 500;
-    color: var(--accent-teal); line-height: 1.1; margin-bottom: 6px;
+    font-family: 'Google Sans', sans-serif; font-size: 1.6rem; font-weight: 600;
+    color: var(--text); line-height: 1.15;
   }
-  .admin-stat-card .stat-label { font-size: 0.82rem; color: var(--text-dim); }
+  .admin-stat-card .stat-label { font-size: 0.78rem; color: var(--text-dim); margin-top: 2px; }
 
   .admin-progress-card {
-    background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 14px; padding: 20px;
+    background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 16px; padding: 22px;
   }
-  .admin-progress-top { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 10px; font-size: 0.88rem; }
-  .admin-progress-track { height: 8px; background: var(--bg-input); border-radius: 100px; overflow: hidden; }
-  .admin-progress-fill { height: 100%; background: linear-gradient(90deg, var(--accent-blue), var(--accent-teal)); border-radius: 100px; transition: width .3s; }
+  .admin-progress-top { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 12px; font-size: 0.88rem; }
+  .admin-progress-top strong { font-family: 'Google Sans', sans-serif; font-size: 1.1rem; }
+  .admin-progress-track { height: 10px; background: var(--bg-input); border-radius: 100px; overflow: hidden; }
+  .admin-progress-fill { height: 100%; background: linear-gradient(90deg, var(--accent-blue), var(--accent-teal), var(--accent-green)); border-radius: 100px; transition: width .5s ease; }
   .admin-progress-hint { font-size: 0.76rem; color: var(--text-dim); margin-top: 8px; }
 
-  .admin-activity-list { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
+  .admin-activity-list {
+    background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 16px;
+    overflow: hidden; max-height: 560px; overflow-y: auto;
+  }
   .admin-activity-row {
-    display: flex; justify-content: space-between; align-items: center;
-    padding: 13px 18px; border-bottom: 1px solid var(--border); font-size: 0.86rem;
+    display: flex; align-items: center; gap: 12px;
+    padding: 14px 18px; border-bottom: 1px solid var(--border); font-size: 0.86rem;
   }
   .admin-activity-row:last-child { border-bottom: none; }
-  .admin-activity-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 70%; }
-  .admin-activity-time { color: var(--text-dim); font-size: 0.78rem; flex-shrink: 0; }
+  .admin-activity-row:hover { background: var(--bg-hover); }
+  .admin-activity-dot {
+    width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+    background: linear-gradient(135deg, var(--accent-blue), var(--accent-teal));
+  }
+  .admin-activity-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .admin-activity-time { color: var(--text-dim); font-size: 0.76rem; flex-shrink: 0; }
 
-  .admin-empty { text-align: center; color: var(--text-dim); font-size: 0.85rem; padding: 30px; }
-  .admin-loading { text-align: center; color: var(--text-dim); padding: 60px 20px; }
+  .admin-empty { text-align: center; color: var(--text-dim); font-size: 0.85rem; padding: 40px 20px; }
+  .admin-loading {
+    text-align: center; color: var(--text-dim); padding: 100px 20px; font-size: 0.9rem;
+  }
 
   .thread-wrap { flex: 1; overflow-y: auto; display: flex; justify-content: center; }
   .thread-wrap.hidden { display: none; }
@@ -2202,59 +2237,100 @@
     const activityRows = stats.recentConversations.length > 0
       ? stats.recentConversations.map((c) => `
           <div class="admin-activity-row">
+            <span class="admin-activity-dot"></span>
             <span class="admin-activity-title">${(c.title || 'New chat').replace(/</g, '&lt;')}</span>
             <span class="admin-activity-time">${formatRelativeTime(c.updatedAt)}</span>
           </div>
         `).join('')
       : '<div class="admin-empty">Aucune activité récente</div>';
 
+    const iconConversations = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 11.5a8.4 8.4 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.4 8.4 0 01-3.8-.9L3 21l1.9-5.7a8.4 8.4 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.4 8.4 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z"/></svg>';
+    const iconUsers = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>';
+    const iconMessages = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 4h16v12H7l-3 3V4z"/></svg>';
+    const iconGuest = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>';
+    const iconBolt = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M13 2L3 14h7l-1 8 10-12h-7l1-8z"/></svg>';
+    const iconPerson = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>';
+    const iconGauge = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 20a8 8 0 100-16 8 8 0 000 16z"/><path d="M12 12l3-3M12 4v2M20 12h-2M4 12h2"/></svg>';
+
     document.getElementById('admin-container').innerHTML = `
-      <div class="admin-header">
-        <div class="admin-header-left">
+      <div class="admin-banner">
+        <div class="admin-banner-left">
           <img src="/assets/icon.svg" alt="">
-          <h1>Tableau de bord</h1>
+          <div>
+            <h1>Tableau de bord</h1>
+            <div class="admin-banner-sub">Mise à jour automatique toutes les 15 secondes</div>
+          </div>
         </div>
         <div class="admin-header-actions">
           <button class="admin-btn" id="admin-refresh-btn" type="button">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 11-3-6.7"/><path d="M21 3v6h-6"/></svg>
             Actualiser
           </button>
-          <button class="admin-btn" id="admin-close-btn" type="button">
+          <button class="admin-btn primary" id="admin-close-btn" type="button">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
             Fermer
           </button>
         </div>
       </div>
-      <div class="admin-live-label">🟢 Mise à jour automatique toutes les 15 secondes</div>
 
-      <div class="admin-section-title">Vue d'ensemble</div>
-      <div class="admin-stat-grid">
-        <div class="admin-stat-card"><div class="stat-value">${stats.totalConversations}</div><div class="stat-label">Conversations totales</div></div>
-        <div class="admin-stat-card"><div class="stat-value">${stats.uniqueUsers}</div><div class="stat-label">Comptes utilisateurs</div></div>
-        <div class="admin-stat-card"><div class="stat-value">${stats.totalMessages}</div><div class="stat-label">Messages totaux</div></div>
-        <div class="admin-stat-card"><div class="stat-value">${stats.guestSessionsActive}</div><div class="stat-label">Sessions invité actives</div></div>
-      </div>
+      <div class="admin-grid-2col">
+        <div>
+          <div class="admin-section-title">Vue d'ensemble</div>
+          <div class="admin-stat-grid">
+            <div class="admin-stat-card">
+              <div class="admin-stat-icon c-blue">${iconConversations}</div>
+              <div><div class="stat-value">${stats.totalConversations}</div><div class="stat-label">Conversations totales</div></div>
+            </div>
+            <div class="admin-stat-card">
+              <div class="admin-stat-icon c-teal">${iconUsers}</div>
+              <div><div class="stat-value">${stats.uniqueUsers}</div><div class="stat-label">Comptes utilisateurs</div></div>
+            </div>
+            <div class="admin-stat-card">
+              <div class="admin-stat-icon c-green">${iconMessages}</div>
+              <div><div class="stat-value">${stats.totalMessages}</div><div class="stat-label">Messages totaux</div></div>
+            </div>
+            <div class="admin-stat-card">
+              <div class="admin-stat-icon c-gold">${iconGuest}</div>
+              <div><div class="stat-value">${stats.guestSessionsActive}</div><div class="stat-label">Sessions invité actives</div></div>
+            </div>
+          </div>
 
-      <div class="admin-section-title">Aujourd'hui</div>
-      <div class="admin-stat-grid">
-        <div class="admin-stat-card"><div class="stat-value">${stats.todayMessages}</div><div class="stat-label">Messages envoyés aujourd'hui</div></div>
-        <div class="admin-stat-card"><div class="stat-value">${stats.activeUsersToday}</div><div class="stat-label">Utilisateurs actifs aujourd'hui</div></div>
-        <div class="admin-stat-card"><div class="stat-value">${stats.dailyMessageLimit}</div><div class="stat-label">Limite/jour (compte)</div></div>
-        <div class="admin-stat-card"><div class="stat-value">${stats.guestMessageLimit}</div><div class="stat-label">Limite/jour (invité)</div></div>
-      </div>
+          <div class="admin-section-title">Aujourd'hui</div>
+          <div class="admin-stat-grid">
+            <div class="admin-stat-card">
+              <div class="admin-stat-icon c-blue">${iconBolt}</div>
+              <div><div class="stat-value">${stats.todayMessages}</div><div class="stat-label">Messages envoyés aujourd'hui</div></div>
+            </div>
+            <div class="admin-stat-card">
+              <div class="admin-stat-icon c-teal">${iconPerson}</div>
+              <div><div class="stat-value">${stats.activeUsersToday}</div><div class="stat-label">Utilisateurs actifs aujourd'hui</div></div>
+            </div>
+            <div class="admin-stat-card">
+              <div class="admin-stat-icon c-green">${iconGauge}</div>
+              <div><div class="stat-value">${stats.dailyMessageLimit}</div><div class="stat-label">Limite/jour (compte)</div></div>
+            </div>
+            <div class="admin-stat-card">
+              <div class="admin-stat-icon c-gold">${iconGauge}</div>
+              <div><div class="stat-value">${stats.guestMessageLimit}</div><div class="stat-label">Limite/jour (invité)</div></div>
+            </div>
+          </div>
 
-      <div class="admin-section-title">Budget images</div>
-      <div class="admin-progress-card">
-        <div class="admin-progress-top">
-          <span>${stats.images.usedThisMonth} / ${stats.images.monthlyLimit} images utilisées</span>
-          <span>${imagePct}%</span>
+          <div class="admin-section-title">Budget images</div>
+          <div class="admin-progress-card">
+            <div class="admin-progress-top">
+              <strong>${stats.images.usedThisMonth} / ${stats.images.monthlyLimit}</strong>
+              <span style="color:var(--text-dim);">${imagePct}%</span>
+            </div>
+            <div class="admin-progress-track"><div class="admin-progress-fill" style="width:${imagePct}%"></div></div>
+            <div class="admin-progress-hint">Budget mensuel : $${stats.images.monthlyBudgetUSD} — se réinitialise chaque mois</div>
+          </div>
         </div>
-        <div class="admin-progress-track"><div class="admin-progress-fill" style="width:${imagePct}%"></div></div>
-        <div class="admin-progress-hint">Budget mensuel : $${stats.images.monthlyBudgetUSD} — se réinitialise chaque mois</div>
-      </div>
 
-      <div class="admin-section-title">Activité récente</div>
-      <div class="admin-activity-list">${activityRows}</div>
+        <div>
+          <div class="admin-section-title">Activité récente</div>
+          <div class="admin-activity-list">${activityRows}</div>
+        </div>
+      </div>
     `;
 
     document.getElementById('admin-close-btn').onclick = () => {
